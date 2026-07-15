@@ -26,3 +26,10 @@ Admin Application 실행 (문서 업로드 시)
 별도 터미널에서:
 streamlit run apps/admin_app.py --server.port 8502
 http://localhost:8502
+
+
+git
+
+git add .
+git commit -m "Initial commit"
+git push -u origin main
