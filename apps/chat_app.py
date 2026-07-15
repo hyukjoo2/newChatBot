@@ -11,9 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
+from PIL import Image as _Image
 
 from backend.services import session_service, chat_service, document_service, ingestion_service
 from backend.chatbot.language_utils import strip_leaked_prompt, fix_markdown_spacing
+
+_ICON_PATH = Path(__file__).parent / "static" / "ttlzzang.png"
+_AVATAR = _Image.open(_ICON_PATH)
 
 import re as _re
 import logging as _logging
@@ -133,7 +137,7 @@ def _render_task_panel(panel, text: str, state: dict, is_streaming: bool = True)
 # ──────────────────────────────────────────────
 st.set_page_config(
     page_title="Selma",
-    page_icon="🤖",
+    page_icon=_AVATAR,
     layout="wide",
 )
 
@@ -309,7 +313,7 @@ with chat_container:
             with st.chat_message("user"):
                 st.markdown(msg.content)
         elif msg.role == "ASSISTANT":
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar=_AVATAR):
                 st.markdown(fix_markdown_spacing(msg.content))
                 # 출처 표시 (RAG 모드)
                 sources = msg.metadata.get("sources") or []
@@ -491,7 +495,7 @@ if user_input:
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_AVATAR):
             placeholder = st.empty()
             placeholder.markdown(
                 "<span style='color:#888;font-style:italic;'>⏳ 생각 중...</span>",

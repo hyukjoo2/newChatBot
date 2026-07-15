@@ -49,27 +49,14 @@ def strip_leaked_prompt(text: str) -> str:
 
 
 # ── 마크다운 볼드/이탤릭 공백 정규화 ──────────────────────────────────────────
-# qwen2.5:7b 등 소형 모델이 한글 음절 사이에 공백을 삽입하거나
-# ** text ** 처럼 마커 안쪽에 공백을 넣는 문제를 교정한다.
+# LLM이 ** text ** 처럼 마커 안쪽에 공백을 넣는 경우
+# 표준 마크다운 파서가 볼드로 인식하지 못해 ** 가 그대로 노출된다.
 _BOLD_SPACE_RE = re.compile(r'\*\*[ \t]+([^*\n]+?)[ \t]+\*\*')
 _ITALIC_SPACE_RE = re.compile(r'(?<!\*)\*[ \t]+([^*\n]+?)[ \t]+\*(?!\*)')
-_KOR_SYLLABLE_RE = re.compile(r'([\uAC00-\uD7A3]) ([\uAC00-\uD7A3])')
 
 
 def fix_markdown_spacing(text: str) -> str:
-    """
-    LLM 출력 텍스트의 마크다운 렌더링 문제를 교정한다.
-
-    1. 한글 음절 간 공백 제거: '네 이 버' → '네이버'  (반복 적용)
-    2. ** text ** → **text**, * text * → *text*
-    """
-    # 1. 한글 음절 사이 공백 반복 제거
-    prev = ""
-    while prev != text:
-        prev = text
-        text = _KOR_SYLLABLE_RE.sub(r'\1\2', text)
-
-    # 2. 볼드/이탤릭 마커 안쪽 공백 제거
+    """** text ** → **text**, * text * → *text* 로 정규화한다."""
     text = _BOLD_SPACE_RE.sub(r'**\1**', text)
     text = _ITALIC_SPACE_RE.sub(r'*\1*', text)
     return text
