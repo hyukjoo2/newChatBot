@@ -209,7 +209,7 @@ with st.sidebar:
     }
     </style>
     """)
-    st.markdown("# ChatSELMA")
+    st.markdown("# Chat Selma")
 
     if USER_ID is None:
         st.error("DB 연결 실패. docker-compose를 확인하세요.")
