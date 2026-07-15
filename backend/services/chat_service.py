@@ -190,7 +190,7 @@ def stream_chat(
                     full_response.append(text)
                     yield text
 
-    response_text = strip_leaked_prompt("\n".join(full_response))
+    response_text = strip_leaked_prompt("".join(full_response))
     msg_meta = {"mode": mode.lower()}
     if sources:
         msg_meta["sources"] = sources

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import streamlit as st
 
 from backend.services import session_service, chat_service, document_service, ingestion_service
-from backend.chatbot.language_utils import strip_leaked_prompt
+from backend.chatbot.language_utils import strip_leaked_prompt, fix_markdown_spacing
 
 import re as _re
 import logging as _logging
@@ -310,7 +310,7 @@ with chat_container:
                 st.markdown(msg.content)
         elif msg.role == "ASSISTANT":
             with st.chat_message("assistant"):
-                st.markdown(msg.content)
+                st.markdown(fix_markdown_spacing(msg.content))
                 # 출처 표시 (RAG 모드)
                 sources = msg.metadata.get("sources") or []
                 if sources:
@@ -515,7 +515,7 @@ if user_input:
                         except Exception as _panel_err:
                             _log.warning("task panel update failed: %s", _panel_err)
 
-                final_text = strip_leaked_prompt("".join(collected))
+                final_text = fix_markdown_spacing(strip_leaked_prompt("".join(collected)))
                 placeholder.markdown(final_text)
                 # 완료 후: 스피너 없는 완료 상태로 패널 갱신 후 session_state에 저장
                 if task_state["tasks"]:
