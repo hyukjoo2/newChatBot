@@ -1,0 +1,15 @@
+langchain
+langchain-core
+langchain-ollama
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-postgres
+python-dotenv
+streamlit
+psycopg[binary,pool]
+pypdf
+pymupdf
+pdfplumber
+python-docx
+pillow
+pytesseract
