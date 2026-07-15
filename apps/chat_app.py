@@ -210,7 +210,6 @@ with st.sidebar:
     </style>
     """)
     st.markdown("# Selma")
-    st.caption("💬 AI 챗봇")
 
     if USER_ID is None:
         st.error("DB 연결 실패. docker-compose를 확인하세요.")
