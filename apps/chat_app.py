@@ -132,7 +132,7 @@ def _render_task_panel(panel, text: str, state: dict, is_streaming: bool = True)
 # 페이지 설정
 # ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="AI 챗봇",
+    page_title="Selma",
     page_icon="🤖",
     layout="wide",
 )
@@ -205,7 +205,8 @@ with st.sidebar:
     }
     </style>
     """)
-    st.title("💬 AI 챗봇")
+    st.markdown("# Selma")
+    st.caption("💬 AI 챗봇")
 
     if USER_ID is None:
         st.error("DB 연결 실패. docker-compose를 확인하세요.")
