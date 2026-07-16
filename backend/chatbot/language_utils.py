@@ -48,6 +48,59 @@ def strip_leaked_prompt(text: str) -> str:
     return "\n".join(clean).strip()
 
 
+# ── Chain-of-Thought: <think> 블록 분리 ─────────────────────────────────────
+
+def split_think_content(
+    text: str,
+    in_think: bool = False,
+) -> tuple[list[tuple[bool, str]], bool]:
+    """
+    스트리밍 텍스트에서 <think>...</think> 블록을 분리한다.
+
+    Returns:
+        segments: (is_think, content) 튜플 목록
+                  is_think=True  → 추론 내용 (사용자에게 별도 표시, DB 미저장)
+                  is_think=False → 실제 답변 내용
+        new_in_think: 이 텍스트 처리 후의 thinking 상태 (다음 청크에 전달)
+
+    Example:
+        "안녕<think>잠깐 생각</think>하세요" → [
+            (False, "안녕"),
+            (True,  "잠깐 생각"),
+            (False, "하세요"),
+        ], False
+    """
+    segments: list[tuple[bool, str]] = []
+    pos = 0
+
+    while pos < len(text):
+        if in_think:
+            end = text.find("</think>", pos)
+            if end == -1:
+                # </think> 없음 — 나머지 전체가 thinking
+                segments.append((True, text[pos:]))
+                pos = len(text)
+            else:
+                if end > pos:
+                    segments.append((True, text[pos:end]))
+                in_think = False
+                pos = end + 8  # len("</think>")
+        else:
+            start = text.find("<think>", pos)
+            if start == -1:
+                # <think> 없음 — 나머지 전체가 실제 내용
+                if pos < len(text):
+                    segments.append((False, text[pos:]))
+                pos = len(text)
+            else:
+                if start > pos:
+                    segments.append((False, text[pos:start]))
+                in_think = True
+                pos = start + 7  # len("<think>")
+
+    return segments, in_think
+
+
 # ── 마크다운 볼드/이탤릭 공백 정규화 ──────────────────────────────────────────
 # LLM이 ** text ** 처럼 마커 안쪽에 공백을 넣는 경우
 # 표준 마크다운 파서가 볼드로 인식하지 못해 ** 가 그대로 노출된다.

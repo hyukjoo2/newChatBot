@@ -45,7 +45,18 @@ def _get_model() -> ChatOllama:
 def rag_agent_node(state: ChatState) -> dict:
     """RAG 에이전트 노드: search_documents 도구를 사용해 문서 기반 답변을 생성한다."""
     model = _get_model()
-    messages = [SystemMessage(content=RAG_AGENT_SYSTEM_PROMPT), *state["messages"]]
+
+    # Corrective RAG: 재시도 시 다른 키워드로 재검색하도록 힌트 추가
+    retry_count: int = state.get("rag_retry_count") or 0
+    system_prompt = RAG_AGENT_SYSTEM_PROMPT
+    if retry_count > 0:
+        system_prompt += (
+            "\n\n⚠️ 이전 검색 결과가 질문에 충분히 답하지 못했습니다. "
+            "반드시 다른 키워드 조합으로 search_documents 도구를 다시 호출하세요. "
+            "동일한 쿼리를 반복하지 마세요."
+        )
+
+    messages = [SystemMessage(content=system_prompt), *state["messages"]]
     response = model.invoke(messages)
 
     if response.content and not response.tool_calls:

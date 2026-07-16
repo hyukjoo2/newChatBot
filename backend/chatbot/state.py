@@ -38,3 +38,10 @@ class ChatState(TypedDict):
 
     # Phase 1 완료 → Phase 2 시작 신호 (문자열 매칭 대신 상태 필드로 안전하게 전환)
     task_plan_ready: Optional[bool]
+
+    # ── Corrective RAG ──────────────────────────────────────────────────────
+    # 답변 품질 평가 결과: "relevant" | "not_relevant"
+    answer_grade: Optional[str]
+
+    # RAG 재시도 횟수 (최대 2회)
+    rag_retry_count: Optional[int]

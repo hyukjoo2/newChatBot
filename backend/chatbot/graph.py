@@ -9,10 +9,12 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from backend.chatbot.nodes.supervisor import supervisor_node, _AGENT_ALIASES
 from backend.chatbot.nodes.rag_agent import rag_agent_node, _TOOLS as _RAG_TOOLS
 from backend.chatbot.nodes.image_agent import image_agent_node, _IMAGE_TOOLS
-from backend.chatbot.nodes.direct_agent import direct_agent_node
+from backend.chatbot.nodes.direct_agent import direct_agent_node, _TOOLS as _DIRECT_TOOLS
 from backend.chatbot.nodes.email_agent import email_agent_node
 from backend.chatbot.nodes.summary_agent import summary_agent_node, _TOOLS as _SUMMARY_TOOLS
 from backend.chatbot.nodes.task_agent import task_agent_node, _TOOLS as _TASK_TOOLS
+from backend.chatbot.nodes.grade_answer import grade_answer_node, MAX_RETRIES
+from backend.chatbot.nodes.web_search_agent import web_search_agent_node
 from backend.chatbot.state import ChatState
 from backend.config import settings
 
@@ -35,7 +37,12 @@ def build_graph(checkpointer=None) -> any:
 
     흐름:
         START → supervisor
-                 ├─ rag_agent     → rag_tools (ReAct 루프) → rag_agent → END
+                 ├─ rag_agent     → rag_tools (ReAct 루프) → rag_agent
+                 │                → grade_answer (답변 품질 평가)
+                 │                    ├─ relevant              → END
+                 │                    ├─ not_relevant (retry<2) → rag_agent
+                 │                    └─ not_relevant (retry≥2) → web_search_agent
+                 ├─ web_search_agent → END (항상 먼저 검색 후 답변)
                  ├─ summary_agent → summary_tools (ReAct 루프) → summary_agent → END
                  ├─ task_agent    → task_tools (ReAct 루프) → task_agent → END
                  ├─ email_agent   → END
@@ -56,6 +63,9 @@ def build_graph(checkpointer=None) -> any:
     builder.add_node("image_agent", image_agent_node)
     builder.add_node("image_tools", ToolNode(_IMAGE_TOOLS))
     builder.add_node("direct_agent", direct_agent_node)
+    builder.add_node("direct_tools", ToolNode(_DIRECT_TOOLS))
+    builder.add_node("grade_answer", grade_answer_node)
+    builder.add_node("web_search_agent", web_search_agent_node)
 
     # ── 엣지 ────────────────────────────────────────────────────────────────
     builder.add_edge(START, "supervisor")
@@ -70,18 +80,47 @@ def build_graph(checkpointer=None) -> any:
             "email_agent": "email_agent",
             "image_agent": "image_agent",
             "direct_agent": "direct_agent",
+            "web_search_agent": "web_search_agent",
         },
     )
 
-    builder.add_edge("direct_agent", END)
     builder.add_edge("email_agent", END)
 
-    # rag_agent ReAct 루프
-    builder.add_conditional_edges("rag_agent", tools_condition, {
-        "tools": "rag_tools",
+    # direct_agent ReAct 루프 (모를 때 web_search 도구 호출)
+    builder.add_conditional_edges("direct_agent", tools_condition, {
+        "tools": "direct_tools",
         END: END,
     })
+    builder.add_edge("direct_tools", "direct_agent")
+
+    # rag_agent ReAct 루프 + Corrective RAG
+    # 도구 호출이 없으면 grade_answer로 가서 답변 품질을 평가한다.
+    builder.add_conditional_edges("rag_agent", tools_condition, {
+        "tools": "rag_tools",
+        END: "grade_answer",
+    })
     builder.add_edge("rag_tools", "rag_agent")
+
+    def _route_after_grade(state: ChatState) -> str:
+        """grade_answer 결과에 따라 종료 / rag 재시도 / 웹 검색 폴백을 결정한다."""
+        if state.get("answer_grade") == "not_relevant":
+            retry = state.get("rag_retry_count", 0)
+            if retry <= MAX_RETRIES:
+                _log.info("Answer graded not_relevant — retrying rag_agent (retry=%d)", retry)
+                return "rag_agent"
+            else:
+                _log.info("MAX_RETRIES reached — falling back to web_search_agent")
+                return "web_search_agent"
+        return END
+
+    builder.add_conditional_edges("grade_answer", _route_after_grade, {
+        "rag_agent": "rag_agent",
+        "web_search_agent": "web_search_agent",
+        END: END,
+    })
+
+    # web_search_agent: 항상 먼저 검색 후 답변 (ReAct 루프 불필요)
+    builder.add_edge("web_search_agent", END)
 
     # summary_agent ReAct 루프
     builder.add_conditional_edges("summary_agent", tools_condition, {

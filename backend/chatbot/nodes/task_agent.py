@@ -20,13 +20,13 @@ from langchain_ollama import ChatOllama
 
 from backend.chatbot.prompts import TASK_PLAN_PROMPT, TASK_EXECUTE_PROMPT
 from backend.chatbot.state import ChatState, TaskItem
-from backend.chatbot.tools import search_documents
+from backend.chatbot.tools import search_documents, web_search
 from backend.chatbot.language_utils import strip_leaked_prompt
 from backend.config import settings
 
 _log = logging.getLogger(__name__)
 
-_TOOLS = [search_documents]
+_TOOLS = [search_documents, web_search]
 
 
 def _normalize_query(text: str) -> str:

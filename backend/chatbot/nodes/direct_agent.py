@@ -1,6 +1,7 @@
 """
-직접 답변 에이전트 노드: 문서 검색 없이 일반 질문에 직접 답변한다.
-supervisor 가 'direct_agent' 로 라우팅할 때 호출된다.
+직접 답변 에이전트 노드: 일반 질문에 답변한다.
+확실한 지식(ucf54딩·수학·개념)은 마로 답하고,
+특정 장소·인물·사실 등 확실하지 않으면 web_search 도구를 호출한다.
 """
 from __future__ import annotations
 
@@ -12,8 +13,11 @@ from langchain_ollama import ChatOllama
 
 from backend.chatbot.prompts import AGENT_SYSTEM_PROMPT
 from backend.chatbot.state import ChatState
+from backend.chatbot.tools import web_search
 from backend.chatbot.language_utils import strip_leaked_prompt
 from backend.config import settings
+
+_TOOLS = [web_search]
 
 _INTRO_RE = re.compile(
     r"(안녕하세요[,!.]?\s*)?"
@@ -28,17 +32,18 @@ def _strip_intro(text: str) -> str:
 
 @lru_cache(maxsize=1)
 def _get_model() -> ChatOllama:
-    return ChatOllama(
+    base = ChatOllama(
         model=settings.ollama_model,
         base_url=settings.ollama_base_url,
         temperature=settings.temperature,
         num_ctx=settings.num_ctx,
         num_predict=settings.num_predict,
     )
+    return base.bind_tools(_TOOLS)
 
 
 def direct_agent_node(state: ChatState) -> dict:
-    """직접 답변 노드: 도구 없이 일반 지식으로 답변한다."""
+    """직접 답변 노드: 확실한 지식은 바로 답하고, 불확실하면 web_search 도구를 호출한다."""
     model = _get_model()
     messages = [SystemMessage(content=AGENT_SYSTEM_PROMPT), *state["messages"]]
     response = model.invoke(messages)

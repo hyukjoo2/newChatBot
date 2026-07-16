@@ -28,7 +28,7 @@ from backend.database.repositories.document_repository import DocumentRepository
 _log = logging.getLogger(__name__)
 _doc_repo = DocumentRepository()
 
-_ROUTE_VALUES = Literal["rag_agent", "email_agent", "summary_agent", "image_agent", "task_agent", "direct_agent"]
+_ROUTE_VALUES = Literal["rag_agent", "email_agent", "summary_agent", "image_agent", "task_agent", "web_search_agent", "direct_agent"]
 
 # ── 다중 작업 결정론적 감지 ─────────────────────────────────────────────────
 # LLM 판단에 의존하지 않고 패턴으로 task_agent 강제 트리거
@@ -82,6 +82,9 @@ _AGENT_ALIASES: dict[str, str] = {
     "image_agent": "image_agent",
     "task": "task_agent",
     "task_agent": "task_agent",
+    "web_search": "web_search_agent",
+    "web_search_agent": "web_search_agent",
+    "websearch": "web_search_agent",
     "direct": "direct_agent",
     "direct_agent": "direct_agent",
 }
@@ -106,18 +109,19 @@ def _build_doc_context(session_id: str | None) -> str:
 
 
 @tool
-def route(agent: Literal["rag_agent", "email_agent", "summary_agent", "image_agent", "task_agent", "direct"]) -> str:
+def route(agent: Literal["rag_agent", "email_agent", "summary_agent", "image_agent", "task_agent", "web_search_agent", "direct"]) -> str:
     """
     사용자 질문을 처리할 에이전트를 선택합니다.
 
     Args:
         agent: 라우팅할 대상.
-               - rag_agent    : 문서·파일·지식베이스 검색이 필요한 질문
-               - email_agent  : 이메일 작성·초안 요청
-               - summary_agent: 문서 요약·정리 요청
-               - image_agent  : 업로드된 이미지의 시각적 내용 분석
-               - task_agent   : 여러 작업을 순서대로 처리하는 다중 작업 요청
-               - direct       : 일반 상식, 코딩, 수학, 일상 대화 등
+               - rag_agent         : 문서·파일·지식베이스 검색이 필요한 질문
+               - email_agent       : 이메일 작성·초안 요청
+               - summary_agent     : 문서 요약·정리 요청
+               - image_agent       : 업로드된 이미지의 시각적 내용 분석
+               - task_agent        : 여러 작업을 순서대로 처리하는 다중 작업 요청
+               - web_search_agent  : 특정 장소·인물·현재 이슈·최신 정보 등 모델 학습 범위를 벗어날 수 있는 사실 확인 질문
+               - direct            : 코딩·수학·일반 상식처럼 모델이 확실히 알 수 있는 질문
     """
     return agent
 
@@ -138,30 +142,43 @@ def _parse_route_fallback(last_message: str) -> _ROUTE_VALUES:
     """LLM tool call 실패 시 키워드 기반 폴백 라우팅."""
     text = last_message.lower()
 
-    image_keywords = ["이미지", "사진", "그림", "photo", "image", "picture", "screenshot", "스크린샷"]
-    email_keywords = ["이메일", "메일", "email", "mail", "초안", "draft", "발송", "수신", "보내기"]
+    image_keywords   = ["이미지", "사진", "그림", "photo", "image", "picture", "screenshot", "스크린샷"]
+    email_keywords   = ["이메일", "메일", "email", "mail", "초안", "draft", "발송", "수신", "보내기"]
     summary_keywords = ["요약", "정리해", "summarize", "summary", "핵심만", "간단히"]
-    task_keywords = [
+    task_keywords    = [
         "순서대로", "하나씩", "여러 가지", "다음을 해줘", "할 일들",
         "작업 목록", "할 일 목록", "코스안 작성", "순서대로 해줘",
-        "첫째", "두번째", "세번째", "1.", "2.", "3.",
+        "첫째", "두번째", "세번째",
         "and then", "also do", "additionally", "step by step",
     ]
+    # 명시적으로 로컬 문서를 지칭할 때만 rag로 라우팅
+    # "검색", "찾아", "알려줘" 같은 모호한 동사는 제외
     doc_keywords = [
-        "문서", "파일", "자료", "pdf", "검색", "찾아", "알려줘", "내용", "보고서",
-        "document", "search", "find", "content", "report", "paper", "patent", "특허",
+        "문서에서", "파일에서", "업로드한", "첨부한", "자료에서",
+        "내 문서", "내 파일", ".pdf", ".docx", ".txt", "특허",
+    ]
+    # 엔티티 설명 패턴 — doc_keywords보다 먼저 체크 (더 구체적인 조건)
+    entity_patterns = [
+        "에 대해", "에 대한", "란 뭐야", "란 무엇", "이 뭐야", "가 뭐야",
+        "를 소개", "을 소개", "어떤 곳", "어떤 사람", "어떤 건지",
+        "어디에 있", "어디 있는", "검색해줘", "검색해 줘",
+        "where is", "what is",
+    ]
+    web_keywords = [
+        "어디", "위치", "주소", "영업", "운영", "개장", "폐장", "입장료", "가격",
+        "전화번호", "연락처", "예약", "방문", "후기", "리뷰",
+        "최신", "최근", "요즘", "현재", "오늘", "지금", "올해", "이번",
+        "뉴스", "소식", "업데이트", "발표", "출시",
     ]
 
-    if any(kw in text for kw in image_keywords):
-        return "image_agent"
-    if any(kw in text for kw in email_keywords):
-        return "email_agent"
-    if any(kw in text for kw in summary_keywords):
-        return "summary_agent"
-    if any(kw in text for kw in task_keywords):
-        return "task_agent"
-    if any(kw in text for kw in doc_keywords):
-        return "rag_agent"
+    if any(kw in text for kw in image_keywords):   return "image_agent"
+    if any(kw in text for kw in email_keywords):   return "email_agent"
+    if any(kw in text for kw in summary_keywords): return "summary_agent"
+    if any(kw in text for kw in task_keywords):    return "task_agent"
+    # entity/web 패턴을 doc_keywords보다 먼저 → "이혁주 검색해줘"가 rag로 가지 않도록
+    if any(pat in text for pat in entity_patterns): return "web_search_agent"
+    if any(kw in text for kw in web_keywords):      return "web_search_agent"
+    if any(kw in text for kw in doc_keywords):      return "rag_agent"
     return "direct_agent"
 
 

@@ -14,6 +14,7 @@ import streamlit as st
 from PIL import Image as _Image
 
 from backend.services import session_service, chat_service, document_service, ingestion_service
+from backend.services.chat_service import STATUS_PREFIX as _STATUS_PREFIX, THINK_PREFIX as _THINK_PREFIX
 from backend.chatbot.language_utils import strip_leaked_prompt, fix_markdown_spacing
 
 _ICON_PATH = Path(__file__).parent / "static" / "ttlzzang.png"
@@ -495,23 +496,77 @@ if user_input:
             st.markdown(user_input)
 
         with st.chat_message("assistant", avatar=_AVATAR):
-            placeholder = st.empty()
+            # 렌더링 순서: [추론 섹션(CoT)] → [상태 표시] → [응답 내용]
+            think_box   = st.empty()   # <think> 블록이 오면 expander로 교체
+            status_ph   = st.empty()   # 진행 상황 표시
+            placeholder = st.empty()   # 실제 응답 내용
+
+            # 초기 대기 상태 표시
             placeholder.markdown(
                 "<span style='color:#888;font-style:italic;'>⏳ 생각 중...</span>",
                 unsafe_allow_html=True,
             )
             collected = []
+            _has_content = False
+            _has_inline_status = False
+
+            # ── Chain-of-Thought 상태 ──────────────────────────────────────
+            thinking_buf: list[str] = []
+            think_ph = None          # think_box 안의 st.empty() 핸들
+            thinking_sealed = False  # </think> 후 expander를 완료 상태로 전환
 
             try:
                 for token in chat_service.stream_chat(
                     session_id=current_session_id,
                     user_message=user_input,
                 ):
+                    # ── 추론 (CoT) 토큰 ─────────────────────────────────────
+                    if token.startswith(_THINK_PREFIX):
+                        t = token[len(_THINK_PREFIX):]
+                        thinking_buf.append(t)
+                        if think_ph is None:
+                            # 첫 thinking 토큰 — expander 생성
+                            with think_box.expander("🤔 추론 과정", expanded=True):
+                                think_ph = st.empty()
+                        think_ph.markdown(
+                            "```\n" + "".join(thinking_buf) + "▌\n```"
+                        )
+                        continue
+
+                    # 추론 종료 후 첫 실제 토큰 도착 → expander 완료 처리
+                    if thinking_buf and not thinking_sealed:
+                        thinking_sealed = True
+                        if think_ph:
+                            think_ph.markdown(
+                                "```\n" + "".join(thinking_buf) + "\n```"
+                            )
+
+                    # ── 진행 상황 상태 토큰 ─────────────────────────────────
+                    if token.startswith(_STATUS_PREFIX):
+                        status_text = token[len(_STATUS_PREFIX):]
+                        if not _has_content:
+                            placeholder.markdown(
+                                f"<span style='color:#888;font-style:italic;'>{status_text}</span>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            status_ph.markdown(
+                                f"<small style='color:#888;'>*{status_text}*</small>",
+                                unsafe_allow_html=True,
+                            )
+                            _has_inline_status = True
+                        continue
+
+                    # ── 실제 응답 토큰 ───────────────────────────────────────
+                    if not _has_content:
+                        _has_content = True
+                    if _has_inline_status:
+                        _has_inline_status = False
+                        status_ph.empty()
+
                     collected.append(token)
                     current_text = "".join(collected)
                     placeholder.markdown(current_text + "▌")
-                    # 📋 이후에는 매 토큰마다 패널 갱신
-                    # panel 업데이트 실패가 스트리밍 루프를 끊으면 응답이 저장 안 되므로 격리
                     if "📋" in current_text:
                         try:
                             _render_task_panel(sidebar_task_panel, current_text, task_state, is_streaming=True)
@@ -520,7 +575,7 @@ if user_input:
 
                 final_text = fix_markdown_spacing(strip_leaked_prompt("".join(collected)))
                 placeholder.markdown(final_text)
-                # 완료 후: 스피너 없는 완료 상태로 패널 갱신 후 session_state에 저장
+                status_ph.empty()
                 if task_state["tasks"]:
                     current_text_final = "".join(collected)
                     try:

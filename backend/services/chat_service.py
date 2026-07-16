@@ -7,7 +7,7 @@ from typing import Generator, Optional
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from backend.chatbot.graph import get_graph
-from backend.chatbot.language_utils import strip_leaked_prompt
+from backend.chatbot.language_utils import strip_leaked_prompt, split_think_content
 from backend.config import settings
 from backend.database.repositories.message_repository import (
     ChatMessage,
@@ -18,7 +18,27 @@ from backend.services.session_service import get_session, rename_session, update
 _REFS_RE = re.compile(r"\[document_refs:(.+?)\]$", re.DOTALL)
 
 # worker 에이전트 노드 이름 — 이 노드들의 응답만 사용자에게 스트리밍한다
-_WORKER_NODES = {"rag_agent", "summary_agent", "task_agent", "email_agent", "image_agent", "direct_agent"}
+_WORKER_NODES = {"rag_agent", "summary_agent", "task_agent", "email_agent", "image_agent", "direct_agent", "web_search_agent"}
+
+# ── 진행 상황 상태 마커 ──────────────────────────────────────────────────────
+# 이 접두사로 시작하는 토큰은 UI가 별도 진행 표시로 처리한다.
+# full_response 에 포함되지 않으므로 DB에 저장되지 않는다.
+STATUS_PREFIX = "\x00STATUS:"
+
+# 모델이 <think>...</think> 블록을 생성할 때 추론 내용을 별도 채널로 스트리밍한다.
+# full_response 에 포함되지 않으므로 DB에 저장되지 않는다.
+THINK_PREFIX = "\x00THINK:"
+
+# 각 노드의 사용자 친화적 상태 메시지
+_NODE_LABELS: dict[str, str] = {
+    "rag_agent":          "📄 문서를 검색해 답변을 작성하고 있습니다",
+    "summary_agent":      "📝 문서를 요약하고 있습니다",
+    "task_agent":         "⚙️ 작업을 처리하고 있습니다",
+    "email_agent":        "✉️ 이메일을 작성하고 있습니다",
+    "image_agent":        "🖼️ 이미지를 분석하고 있습니다",
+    "direct_agent":       "💬 답변을 작성하고 있습니다",
+    "web_search_agent":   "🌐 웹에서 최신 정보를 검색하고 있습니다",
+}
 
 _msg_repo = MessageRepository()
 
@@ -123,8 +143,10 @@ def stream_chat(
     full_response = []
     sources = []
     _last_msg_id: str | None = None  # task_agent 메시지 경계 감지용
+    _node_visits: dict[str, int] = {}  # 노드별 updates 이벤트 횟수 추적
+    _in_think: bool = False            # <think> 블록 파싱 상태
 
-    for chunk, metadata in graph.stream(
+    for event_type, event_data in graph.stream(
         {
             "messages": [HumanMessage(content=user_message)],
             "mode": mode,
@@ -132,8 +154,47 @@ def stream_chat(
             "retrieved_chunks": None,
         },
         config=config,
-        stream_mode="messages",
+        stream_mode=["messages", "updates"],
     ):
+        # ── updates: 노드 완료 이벤트 → 진행 상황 마커 방출 ─────────────────
+        if event_type == "updates":
+            node_name = next(iter(event_data), "")
+            _node_visits[node_name] = _node_visits.get(node_name, 0) + 1
+
+            if node_name == "supervisor":
+                # supervisor 완료 → 어떤 에이전트가 다음에 실행될지 알림
+                state_delta = event_data.get("supervisor") or {}
+                next_agent = (state_delta.get("next") or "").strip().lower()
+                label = _NODE_LABELS.get(next_agent, "")
+                yield f"{STATUS_PREFIX}{label or '🧭 에이전트를 선택하고 있습니다'}"
+
+            elif node_name == "rag_agent":
+                # rag_agent 완료 → tool_calls 없으면 grade_answer 가 다음 실행
+                try:
+                    state_delta = event_data.get("rag_agent") or {}
+                    msgs = state_delta.get("messages") or []
+                    last_msg = msgs[-1] if msgs else None
+                    has_tool_call = bool(getattr(last_msg, "tool_calls", None))
+                    if not has_tool_call:
+                        yield f"{STATUS_PREFIX}🔍 답변 적절성을 검토하고 있습니다..."
+                except Exception:
+                    pass
+
+            elif node_name == "grade_answer":
+                # grade_answer 완료 → 재검색 여부 알림
+                grade_delta = event_data.get("grade_answer") or {}
+                grade = grade_delta.get("answer_grade", "relevant")
+                retry = grade_delta.get("rag_retry_count", 0)
+                if grade == "not_relevant":
+                    if retry >= 2:  # MAX_RETRIES
+                        yield f"{STATUS_PREFIX}🌐 문서에서 찾지 못했습니다. 웹 검색으로 전환합니다..."
+                    else:
+                        yield f"{STATUS_PREFIX}🔄 답변이 충분하지 않습니다. 다시 검색합니다... (재시도 {retry}/2)"
+
+            continue  # updates 이벤트는 응답 내용이 아님
+
+        # ── messages: 실제 응답 토큰 ─────────────────────────────────────────
+        chunk, metadata = event_data
         node_name = metadata.get("langgraph_node", "")
 
         # ToolMessage 에서 출처 파싱 (search_documents 결과)
@@ -181,14 +242,24 @@ def stream_chat(
                 _last_msg_id = msg_id
 
         if isinstance(content, str):
-            full_response.append(content)
-            yield content
-        elif isinstance(content, list):
-            for block in content:
-                text = block if isinstance(block, str) else (block.get("text") if isinstance(block, dict) else "")
-                if text:
+            segments, _in_think = split_think_content(content, _in_think)
+            for is_think, text in segments:
+                if is_think:
+                    yield f"{THINK_PREFIX}{text}"
+                else:
                     full_response.append(text)
                     yield text
+        elif isinstance(content, list):
+            for block in content:
+                raw = block if isinstance(block, str) else (block.get("text") if isinstance(block, dict) else "")
+                if raw:
+                    segments, _in_think = split_think_content(raw, _in_think)
+                    for is_think, text in segments:
+                        if is_think:
+                            yield f"{THINK_PREFIX}{text}"
+                        else:
+                            full_response.append(text)
+                            yield text
 
     response_text = strip_leaked_prompt("".join(full_response))
     msg_meta = {"mode": mode.lower()}

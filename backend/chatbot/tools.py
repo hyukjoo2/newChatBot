@@ -143,8 +143,53 @@ def search_documents(
             return warning + body + meta
 
         return body + meta
-
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("search_documents error: %s", e, exc_info=True)
+        _log.warning("search_documents error: %s", e, exc_info=True)
         return "문서 검색 중 오류가 발생했습니다."
+
+
+@tool
+def web_search(query: str) -> str:
+    """
+    인터넷에서 최신 정보를 검색합니다.
+    특정 장소, 현재 이슈, 인물, 뉴스, 최신 정보 등 모델의 학습 데이터에 없을 수 있는 내용을 찾을 때 사용하세요.
+
+    Args:
+        query: 검색어. 구체적이고 명확한 한국어 또는 영어로 작성하세요.
+               예: '헤이리 못난이유원지 정보', 'Heyri Art Valley amusement park'
+    """
+    import requests as _req
+
+    client_id     = settings.naver_client_id
+    client_secret = settings.naver_client_secret
+
+    if not client_id or not client_secret:
+        return "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 환경변수가 설정되지 않았습니다."
+
+    try:
+        url = "https://openapi.naver.com/v1/search/webkr.json"
+        headers = {
+            "X-Naver-Client-Id":     client_id,
+            "X-Naver-Client-Secret": client_secret,
+        }
+        params = {"query": query, "display": 5, "sort": "sim"}
+        resp = _req.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+
+        if not items:
+            return "검색 결과를 찾을 수 없습니다."
+
+        import re as _re
+        _tag = _re.compile(r"<[^>]+>")
+        parts = []
+        for i, item in enumerate(items, 1):
+            title       = _tag.sub("", item.get("title", ""))
+            description = _tag.sub("", item.get("description", ""))
+            link        = item.get("link", "")
+            parts.append(f"[{i}] {title}\n{description}\n출처: {link}")
+        return "\n\n---\n\n".join(parts)
+
+    except Exception as exc:
+        _log.error("web_search (Naver) failed: %s", exc)
+        return f"웹 검색 중 오류가 발생했습니다: {exc}"

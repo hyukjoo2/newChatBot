@@ -61,6 +61,10 @@ class Settings:
     default_chunk_overlap: int
     default_retrieval_top_k: int
 
+    # Naver Search API
+    naver_client_id: str
+    naver_client_secret: str
+
     @property
     def dsn(self) -> str:
         """psycopg DSN 문자열."""
@@ -96,6 +100,8 @@ def load_settings() -> Settings:
         default_chunk_size=_get_int("DEFAULT_CHUNK_SIZE", 300),
         default_chunk_overlap=_get_int("DEFAULT_CHUNK_OVERLAP", 80),
         default_retrieval_top_k=_get_int("DEFAULT_RETRIEVAL_TOP_K", 5),
+        naver_client_id=_get_str("NAVER_CLIENT_ID", ""),
+        naver_client_secret=_get_str("NAVER_CLIENT_SECRET", ""),
     )
 
 
