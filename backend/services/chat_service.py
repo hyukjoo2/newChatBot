@@ -451,9 +451,8 @@ def inject_session_document_context(
     document_id: str,
 ) -> None:
     """
-    SESSION-scoped 문서 업로드 후 요약을 LangGraph 체크포인터 상태에 주입한다.
-
-    이후 대화에서 LLM이 해당 문서 내용을 컨텍스트로 인식할 수 있게 한다.
+    파일 업로드 후 요약을 LangGraph 체크포인터 상태에 주입한다.
+    범위(GLOBAL/SESSION) 무관하게 현재 세션의 LLM이 파일을 인식하게 한다.
     """
     from langchain_core.messages import AIMessage
     from backend.database.repositories.chunk_repository import ChunkRepository
@@ -461,12 +460,27 @@ def inject_session_document_context(
     chunk_repo = ChunkRepository()
     summary = chunk_repo.get_summary_chunk(document_id)
 
-    if not summary:
-        summary_text = f"📎 **{file_name}** 파일이 이 대화에 추가되었습니다."
-    else:
-        summary_text = f"📎 **{file_name}** 파일이 이 대화에 추가되었습니다.\n\n{summary}"
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    is_image = ext in {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff"}
 
-    graph = _get_graph()
+    if not summary:
+        if is_image:
+            summary_text = (
+                f"📎 **{file_name}** 이미지가 이 대화에 추가되었습니다.\n"
+                f"이미지를 분석하거나 내용에 대해 질문하려면 말씀해 주세요."
+            )
+        else:
+            summary_text = (
+                f"📎 **{file_name}** 파일이 이 대화에 추가되었습니다.\n"
+                f"파일 내용에 대해 질문하거나 요약을 요청하실 수 있습니다."
+            )
+    else:
+        summary_text = (
+            f"📎 **{file_name}** 파일이 이 대화에 추가되었습니다.\n\n"
+            f"{summary}"
+        )
+
+    graph = get_graph()
     config = {"configurable": {"thread_id": session_id}}
 
     # LangGraph 체크포인터에 AI 메시지로 추가 (이후 대화 컨텍스트에 포함됨)

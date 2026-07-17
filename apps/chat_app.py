@@ -395,29 +395,16 @@ with chat_container:
                                 st.session_state.pop("pending_followup", None)
                                 st.rerun()
 
-# ── + 메뉴 팝오버 (채팅 입력창 왼쪽) ──────────────
+# ── + 메뉴 팝오버 ──────────────
 st.markdown("""
 <style>
-/* + 버튼을 채팅 입력창 왼쪽에 fixed 배치 */
-div[data-testid="stPopover"]:has(button[title="파일 업로드"]) {
-    position: fixed;
-    bottom: 16px;
-    left: calc(var(--sidebar-width, 15rem) + 1.5rem);
-    z-index: 1000;
+/* 사이드바 ⋯ 팝오버는 자연스럽게 유지 */
+section[data-testid="stSidebar"] div[data-testid="stPopover"] {
+    position: relative !important;
+    bottom: auto !important;
+    left: auto !important;
 }
-div[data-testid="stPopover"]:has(button[title="파일 업로드"]) > button {
-    width: 40px !important;
-    height: 40px !important;
-    border-radius: 50% !important;
-    padding: 0 !important;
-    font-size: 20px !important;
-    line-height: 1 !important;
-}
-/* chat input에 왼쪽 여백 확보 */
-[data-testid="stBottom"] [data-testid="stChatInput"] {
-    padding-left: 3rem;
-}
-/* 사이드바 대화 목록 버튼 좌측 정렬 */
+/* 사이드바 버튼 좌측 정렬 */
 </style>
 """, unsafe_allow_html=True)
 
@@ -464,12 +451,12 @@ with st.popover("➕", use_container_width=False, help="지식베이스에 추�
                         _existing_doc = document_service.get_document(_doc_id)
                         if _existing_doc is None or _existing_doc.status != "READY":
                             ingestion_service.ingest_document(_doc_id)
-                        if _upload_scope == "SESSION":
-                            chat_service.inject_session_document_context(
-                                session_id=current_session_id,
-                                file_name=_upload_file.name,
-                                document_id=_doc_id,
-                            )
+                        # 범위에 상관없이 현재 세션에 컨텍스트 주입 (LLM이 파일을 기억)
+                        chat_service.inject_session_document_context(
+                            session_id=current_session_id,
+                            file_name=_upload_file.name,
+                            document_id=_doc_id,
+                        )
                         st.success(f"✅ '{_upload_file.name}' 추가 완료!")
                     except Exception as _e:
                         st.error(f"처리 오류: {_e}")
@@ -522,12 +509,12 @@ with st.popover("➕", use_container_width=False, help="지식베이스에 추�
                             session_id=current_session_id if _paste_scope == "SESSION" else None,
                         )
                         ingestion_service.ingest_document(_doc_id)
-                        if _paste_scope == "SESSION":
-                            chat_service.inject_session_document_context(
-                                session_id=current_session_id,
-                                file_name=_paste_filename,
-                                document_id=_doc_id,
-                            )
+                        # 범위에 상관없이 현재 세션에 컨텍스트 주입 (LLM이 파일을 기억)
+                        chat_service.inject_session_document_context(
+                            session_id=current_session_id,
+                            file_name=_paste_filename,
+                            document_id=_doc_id,
+                        )
                         st.success(f"✅ '{_paste_filename}' 추가 완료!")
                     except Exception as _e:
                         st.error(f"처리 오류: {_e}")

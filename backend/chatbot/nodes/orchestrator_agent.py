@@ -191,47 +191,6 @@ def _llm_derive_followup(agent: str, user_query: str, result: str) -> str | None
         _log.debug("followup LLM call failed: %s", e)
         return None
 
-    # ── 2단계: LLM 생성 ────────────────────────────────────────────────────
-    try:
-        model = ChatOllama(
-            model=settings.ollama_model,
-            base_url=settings.ollama_base_url,
-            temperature=0.0,
-            num_ctx=2048,
-            num_predict=100,
-        )
-        prompt = _FOLLOWUP_JUDGE_PROMPT.format(
-            query=user_query[:200],
-            summary=result[:200],
-        )
-        response = model.invoke([SystemMessage(content=prompt)])
-        raw = response.content.strip() if response.content else ""
-        clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-        if not clean:
-            return None
-
-        m = _FOLLOWUP_RE.search(clean)
-        if not m:
-            return None
-
-        question = m.group(1).strip()
-        action   = m.group(2).strip()
-
-        # ── 3단계: 정크 필터 ────────────────────────────────────────────────
-        for junk in _FOLLOWUP_JUNK:
-            if junk in question or junk in action:
-                _log.debug("followup junk filtered: %r", question[:40])
-                return None
-
-        if len(question) < 5 or len(question) > 80:
-            return None
-
-        return f"{question}:::{action}"
-
-    except Exception as e:
-        _log.debug("followup LLM call failed: %s", e)
-        return None
-
 
 # ── 키워드 기반 폴백 라우팅 (LLM 실패 시) ───────────────────────────────────
 _META_SEQ_RE    = re.compile(r"(\s|,)*(하고|해서|한\s*다음|그\s*다음|다음으로|이어서|그리고)", re.IGNORECASE)
