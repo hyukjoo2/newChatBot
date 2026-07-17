@@ -1,15 +1,37 @@
-langchain
-langchain-core
-langchain-ollama
-langchain-text-splitters
-langgraph
-langgraph-checkpoint-postgres
-python-dotenv
-streamlit
-psycopg[binary,pool]
-pypdf
-pymupdf
-pdfplumber
-python-docx
-pillow
-pytesseractduckduckgo-search
+# ── LangChain / LangGraph ────────────────────────────────────────────────────
+langchain>=0.3.30
+langchain-core>=0.3.86
+langchain-ollama>=0.3.10
+langchain-text-splitters>=0.3.11
+langgraph>=0.6.11
+langgraph-checkpoint-postgres>=2.0.25
+
+# ── Ollama 클라이언트 ─────────────────────────────────────────────────────────
+ollama>=0.6.2
+
+# ── UI ───────────────────────────────────────────────────────────────────────
+streamlit>=1.50.0
+
+# ── 데이터베이스 (PostgreSQL + pgvector) ─────────────────────────────────────
+psycopg[binary,pool]>=3.2.13
+SQLAlchemy>=2.0.51
+
+# ── PDF 파싱 ─────────────────────────────────────────────────────────────────
+pypdf>=6.14.2
+PyMuPDF>=1.26.5        # fitz: 스캔 PDF OCR 전처리 (페이지 → 이미지)
+pdfplumber>=0.11.8     # 복잡한 레이아웃 PDF 텍스트 추출
+
+# ── 문서 파싱 ────────────────────────────────────────────────────────────────
+python-docx>=1.2.0     # DOCX 파싱
+Markdown>=3.9          # Markdown 파싱
+
+# ── 이미지 / OCR ─────────────────────────────────────────────────────────────
+pillow>=10.4.0         # PIL: 이미지 로딩 및 전처리
+pytesseract>=0.3.13    # Tesseract OCR 래퍼 (tesseract 로컬 설치 필요)
+
+# ── HTTP / 웹 ────────────────────────────────────────────────────────────────
+requests>=2.32.5       # Naver API, wttr.in 호출
+
+# ── 유틸리티 ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.2.1   # .env 환경변수 로딩
+numpy>=1.26.4          # 벡터 연산
