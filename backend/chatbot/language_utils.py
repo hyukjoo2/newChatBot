@@ -2,6 +2,28 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
+
+
+_WEEKDAY_KO = {
+    "Monday": "월", "Tuesday": "화", "Wednesday": "수", "Thursday": "목",
+    "Friday": "금", "Saturday": "토", "Sunday": "일",
+}
+
+
+def today_context() -> str:
+    """오늘 날짜·시간을 LLM이 무시할 수 없는 명시적 지시문으로 반환한다.
+    시스템 프롬프트 끝에 붙여서 마지막 지시로 작동하게 한다."""
+    now = datetime.now()
+    wd = _WEEKDAY_KO.get(now.strftime("%A"), "")
+    date_str = now.strftime(f"%Y년 %m월 %d일 ({wd}요일)")
+    time_str = now.strftime("%H:%M")
+    return (
+        f"\n[현재 날짜/시각 — 반드시 준수]\n"
+        f"오늘: {date_str}  현재 시각: {time_str}\n"
+        f"날짜·연도를 언급할 때는 반드시 위 날짜를 사용하세요. 다른 연도를 추측하지 마세요."
+    )
+
 
 
 # ── 프롬프트 누수 패턴 ──────────────────────────────────────────────────────

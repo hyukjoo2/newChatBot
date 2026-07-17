@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>bluebook_v01.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="chatselma-bluebook-v10">ChatSELMA Bluebook v1.0</h1>
+<blockquote>
+<p>로컬 AI 챗봇 ChatSELMA의 현재 아키텍처 및 구현 설명서</p>
+</blockquote>
+<hr>
+<h2 id="목차">목차</h2>
+<ol>
+<li><a href="#1-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%9A%94">시스템 개요</a></li>
+<li><a href="#2-%EA%B8%B0%EC%88%A0-%EC%8A%A4%ED%83%9D">기술 스택</a></li>
+<li><a href="#3-%EC%82%AC%EC%9A%A9-%EB%AA%A8%EB%8D%B8">사용 모델</a></li>
+<li><a href="#4-%EC%A0%84%EC%B2%B4-%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98">전체 아키텍처</a></li>
+<li><a href="#5-%EB%A9%80%ED%8B%B0-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8-%EC%9B%8C%ED%81%AC%ED%94%8C%EB%A1%9C%EC%9A%B0">멀티 에이전트 워크플로우</a>
+<ul>
+<li>5.1 <a href="#51-%EC%98%A4%EC%BC%80%EC%8A%A4%ED%8A%B8%EB%A0%88%EC%9D%B4%ED%84%B0-%EC%A4%91%EC%8B%AC-%EC%84%A4%EA%B3%84">오케스트레이터 중심 설계</a></li>
+<li>5.2 <a href="#52-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8-%EA%B0%84-%EC%9B%8C%ED%81%AC%ED%94%8C%EB%A1%9C%EC%9A%B0-%EB%8B%A4%EC%9D%B4%EC%96%B4%EA%B7%B8%EB%9E%A8">에이전트 간 워크플로우 다이어그램</a></li>
+<li>5.3 <a href="#53-rag-%ED%8C%8C%EC%9D%B4%ED%94%84%EB%9D%BC%EC%9D%B8-corrective-rag">RAG 파이프라인 (Corrective RAG)</a></li>
+<li>5.4 <a href="#54-%EC%9A%94%EC%B2%AD-%EC%B2%98%EB%A6%AC-%EC%A0%84%EC%B2%B4-%ED%94%8C%EB%A1%9C%EC%9A%B0">요청 처리 전체 플로우</a></li>
+</ul>
+</li>
+<li><a href="#6-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8-%EC%83%81%EC%84%B8">에이전트 상세</a>
+<ul>
+<li>6.1 <a href="#61-orchestrator_agent">orchestrator_agent</a></li>
+<li>6.2 <a href="#62-rag_agent">rag_agent</a></li>
+<li>6.3 <a href="#63-web_search_agent">web_search_agent</a></li>
+<li>6.4 <a href="#64-weather_agent">weather_agent</a></li>
+<li>6.5 <a href="#65-reasoning_agent">reasoning_agent</a></li>
+<li>6.6 <a href="#66-summary_agent">summary_agent</a></li>
+<li>6.7 <a href="#67-task_agent">task_agent</a></li>
+<li>6.8 <a href="#68-email_agent">email_agent</a></li>
+<li>6.9 <a href="#69-image_agent">image_agent</a></li>
+</ul>
+</li>
+<li><a href="#7-%EB%8F%84%EA%B5%AC-tools">도구 (Tools)</a>
+<ul>
+<li>7.1 <a href="#71-%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8-%EB%8F%84%EA%B5%AC-%ED%98%B8%EC%B6%9C-%EA%B4%80%EA%B3%84">에이전트-도구 호출 관계</a></li>
+<li>7.2 <a href="#72-%EB%8F%84%EA%B5%AC-%EB%AA%A9%EB%A1%9D-%EB%B0%8F-%EC%84%A4%EB%AA%85">도구 목록 및 설명</a></li>
+</ul>
+</li>
+<li><a href="#8-%EC%8A%A4%ED%8A%B8%EB%A6%AC%EB%B0%8D-%ED%86%A0%ED%81%B0-%EC%8B%9C%EC%8A%A4%ED%85%9C">스트리밍 토큰 시스템</a></li>
+<li><a href="#9-%EB%AC%B8%EC%84%9C-%EC%97%85%EB%A1%9C%EB%93%9C-%EB%B0%8F-%EC%9D%B8%EC%A0%9C%EC%8A%A4%EC%B2%9C">문서 업로드 및 인제스천</a>
+<ul>
+<li>9.1 <a href="#91-%EC%97%85%EB%A1%9C%EB%93%9C-%ED%94%8C%EB%A1%9C%EC%9A%B0">업로드 플로우</a></li>
+<li>9.2 <a href="#92-%EC%9D%B8%EC%A0%9C%EC%8A%A4%EC%B2%9C-%ED%8C%8C%EC%9D%B4%ED%94%84%EB%9D%BC%EC%9D%B8">인제스천 파이프라인</a></li>
+<li>9.3 <a href="#93-%EC%A7%80%EC%9B%90-%ED%8C%8C%EC%9D%BC-%ED%98%95%EC%8B%9D">지원 파일 형식</a></li>
+</ul>
+</li>
+<li><a href="#10-%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4-%EB%B0%8F-%EC%83%81%ED%83%9C-%EA%B4%80%EB%A6%AC">데이터베이스 및 상태 관리</a></li>
+<li><a href="#11-ui-%EB%A0%88%EC%9D%B4%EC%96%B4-streamlit">UI 레이어 (Streamlit)</a></li>
+<li><a href="#12-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8-%EA%B5%AC%EC%A1%B0">프로젝트 구조</a></li>
+</ol>
+<hr>
+<h2 id="1-시스템-개요">1. 시스템 개요</h2>
+<p>ChatSELMA는 LangGraph 기반의 멀티 에이전트 로컬 AI 챗봇이다. 사용자의 질문 의도를 오케스트레이터가 분석해 적절한 전문 에이전트에게 위임하고, 그 결과를 통합하여 응답한다.</p>
+<p><strong>핵심 특징:</strong></p>
+<ul>
+<li>오케스트레이터가 계획을 수립하고 전문 에이전트를 순차적으로 호출</li>
+<li>문서 기반 RAG에 품질 평가(Corrective RAG) 적용</li>
+<li>웹 검색, 날씨 조회, 이미지 분석 등 다양한 실시간 도구 통합</li>
+<li>모든 연산은 로컬 환경에서 실행 (Ollama + PostgreSQL)</li>
+<li>Streamlit을 통한 실시간 스트리밍 응답 UI</li>
+</ul>
+<hr>
+<h2 id="2-기술-스택">2. 기술 스택</h2>
+<table>
+<thead>
+<tr>
+<th>구성요소</th>
+<th>기술</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LLM</td>
+<td>qwen3:8b (Ollama)</td>
+<td><code>http://localhost:11434</code></td>
+</tr>
+<tr>
+<td>멀티 에이전트 프레임워크</td>
+<td>LangGraph</td>
+<td>PostgresSaver 체크포인터</td>
+</tr>
+<tr>
+<td>벡터 DB</td>
+<td>PostgreSQL (pgvector)</td>
+<td>하이브리드 검색 (BM25 + 벡터)</td>
+</tr>
+<tr>
+<td>임베딩</td>
+<td>로컬 임베딩 모델</td>
+<td></td>
+</tr>
+<tr>
+<td>웹 검색</td>
+<td>Naver Search API</td>
+<td><code>openapi.naver.com</code></td>
+</tr>
+<tr>
+<td>날씨</td>
+<td>wttr.in</td>
+<td>JSON 포맷 조회</td>
+</tr>
+<tr>
+<td>UI</td>
+<td>Streamlit</td>
+<td>포트 8501</td>
+</tr>
+<tr>
+<td>앱 DB</td>
+<td>PostgreSQL</td>
+<td>세션/메시지/문서 저장</td>
+</tr>
+<tr>
+<td>컨테이너</td>
+<td>Docker Compose</td>
+<td>PostgreSQL 포함</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="3-사용-모델">3. 사용 모델</h2>
+<p>시스템에서 역할별로 서로 다른 모델을 사용한다. 모두 Ollama를 통해 로컬 실행된다.</p>
+<h3 id="모델별-담당-파트-전체-그림">모델별 담당 파트 전체 그림</h3>
+<pre><code class="language-mermaid"><div class="mermaid">graph TD
+    subgraph LLM["qwen3:8b (OLLAMA_MODEL)"]
+        OA_LLM["orchestrator_agent\n계획 수립 / followup 판단"]
+        RE_LLM["reasoning_agent\n일반 추론 / 답변 생성"]
+        WEB_LLM["web_search_agent\n검색 결과 포맷팅"]
+        SU_LLM["summary_agent\n문서 요약"]
+        TA_LLM["task_agent\n작업 실행 / 답변"]
+        EM_LLM["email_agent\n이메일 초안"]
+        IM_LLM["image_agent\n이미지 분석 결과 포맷팅"]
+        ING_LLM["ingestion\n문서 semantic 요약 생성"]
+    end
+
+    subgraph EMBED["nomic-embed-text (OLLAMA_EMBEDDING_MODEL)"]
+        ING_EMB["ingestion\n청크 임베딩 배치 생성"]
+        QUERY_EMB["search_documents\n쿼리 벡터화"]
+    end
+
+    subgraph VISION["moondream (OLLAMA_VISION_MODEL)"]
+        IM_VIS["image_agent\n이미지 시각적 설명 생성"]
+    end
+
+    subgraph OCR["Tesseract (로컬 설치)"]
+        ING_OCR["ingestion\n이미지 파일 OCR 텍스트 추출"]
+    end
+</div></code></pre>
+<hr>
+<h3 id="언어-모델-llm">언어 모델 (LLM)</h3>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>모델</td>
+<td><code>qwen3:8b</code> (환경변수 <code>OLLAMA_MODEL</code>로 교체 가능)</td>
+</tr>
+<tr>
+<td>엔드포인트</td>
+<td><code>http://localhost:11434</code></td>
+</tr>
+<tr>
+<td>기본값 (env_template)</td>
+<td><code>qwen2.5:7b</code></td>
+</tr>
+<tr>
+<td>대안 모델</td>
+<td><code>llama3.1:8b</code> 등 Ollama 호환 모델</td>
+</tr>
+</tbody>
+</table>
+<p><strong>주요 파라미터:</strong></p>
+<table>
+<thead>
+<tr>
+<th>파라미터</th>
+<th>기본값</th>
+<th>환경변수</th>
+<th>설명</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>temperature</code></td>
+<td>0.2</td>
+<td><code>LLM_TEMPERATURE</code></td>
+<td>응답 창의성 (orchestrator/grade_answer는 0.0 고정)</td>
+</tr>
+<tr>
+<td><code>num_ctx</code></td>
+<td>8192</td>
+<td><code>LLM_NUM_CTX</code></td>
+<td>컨텍스트 윈도우 크기</td>
+</tr>
+<tr>
+<td><code>num_predict</code></td>
+<td>1024</td>
+<td><code>LLM_NUM_PREDICT</code></td>
+<td>최대 출력 토큰 수</td>
+</tr>
+</tbody>
+</table>
+<p><strong>노드별 모델 설정 차이:</strong></p>
+<table>
+<thead>
+<tr>
+<th>노드</th>
+<th>temperature</th>
+<th>num_ctx</th>
+<th>num_predict</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>orchestrator_agent (계획)</td>
+<td>0.0</td>
+<td>settings</td>
+<td>256</td>
+<td>결정론적 계획 생성</td>
+</tr>
+<tr>
+<td>orchestrator_agent (followup)</td>
+<td>0.0</td>
+<td>2048</td>
+<td>100</td>
+<td>짧은 후속 제안</td>
+</tr>
+<tr>
+<td>reasoning_agent</td>
+<td>settings</td>
+<td>settings</td>
+<td>settings</td>
+<td>일반 설정 사용</td>
+</tr>
+<tr>
+<td>web_search_agent</td>
+<td>settings</td>
+<td>settings</td>
+<td>settings</td>
+<td>일반 설정 사용</td>
+</tr>
+<tr>
+<td>summary_agent</td>
+<td>settings</td>
+<td>settings</td>
+<td>settings</td>
+<td>일반 설정 사용</td>
+</tr>
+<tr>
+<td>task_agent</td>
+<td>settings</td>
+<td>settings</td>
+<td>settings</td>
+<td>일반 설정 사용</td>
+</tr>
+<tr>
+<td>ingestion (요약)</td>
+<td>0.1</td>
+<td>—</td>
+<td>700</td>
+<td>문서 요약 전용</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>/no_think</code> 지시어:</strong>
+<code>qwen3</code> 계열 모델은 <code>&lt;think&gt;</code> 블록으로 내부 추론 과정을 출력한다. <code>rag_agent</code>, <code>web_search_agent</code> 등 빠른 응답이 필요한 노드는 시스템 프롬프트 끝에 <code>/no_think</code>를 포함해 thinking 과정을 생략한다.</p>
+<hr>
+<h3 id="임베딩-모델">임베딩 모델</h3>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>모델</td>
+<td><code>nomic-embed-text</code></td>
+</tr>
+<tr>
+<td>환경변수</td>
+<td><code>OLLAMA_EMBEDDING_MODEL</code></td>
+</tr>
+<tr>
+<td>벡터 차원</td>
+<td>768</td>
+</tr>
+<tr>
+<td>용도</td>
+<td>문서 청크 임베딩, 쿼리 벡터화</td>
+</tr>
+<tr>
+<td>처리 방식</td>
+<td>인제스천 시 배치(<code>get_embeddings_batch</code>), 검색 시 단건(<code>get_embeddings</code>)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="비전-모델-이미지-분석">비전 모델 (이미지 분석)</h3>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>값</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>모델</td>
+<td><code>moondream</code> (환경변수 <code>OLLAMA_VISION_MODEL</code>로 교체 가능)</td>
+</tr>
+<tr>
+<td>대안 모델</td>
+<td><code>llava:7b</code> 등 멀티모달 지원 모델</td>
+</tr>
+<tr>
+<td><code>num_predict</code></td>
+<td>512</td>
+</tr>
+<tr>
+<td>용도</td>
+<td><code>image_agent</code>의 <code>_call_vision_model()</code> — 이미지를 base64로 인코딩 후 시각적 설명 생성</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="4-전체-아키텍처">4. 전체 아키텍처</h2>
+<pre><code class="language-mermaid"><div class="mermaid">graph TD
+    User["사용자 브라우저"]
+    UI["Streamlit UI"]
+    CS["ChatService"]
+    LG["LangGraph 그래프"]
+    OA["orchestrator_agent"]
+    Workers["Worker 에이전트"]
+    Tools["도구 레이어"]
+    PG["PostgreSQL"]
+    Ollama["Ollama / qwen3:8b"]
+    Naver["Naver Search API"]
+    Wttr["wttr.in"]
+
+    User -->|HTTP| UI
+    UI -->|stream_chat| CS
+    CS -->|stream_mode=messages+updates| LG
+    LG --> OA
+    OA -->|라우팅| Workers
+    Workers -->|도구 호출| Tools
+    Tools -->|벡터 검색| PG
+    Tools -->|HTTP| Naver
+    Tools -->|HTTP| Wttr
+    Workers -->|LLM 호출| Ollama
+    OA -->|LLM 호출| Ollama
+    CS -->|저장 및 조회| PG
+    LG -->|체크포인트| PG
+</div></code></pre>
+<hr>
+<h2 id="5-멀티-에이전트-워크플로우">5. 멀티 에이전트 워크플로우</h2>
+<h3 id="71-오케스트레이터-중심-설계">7.1 오케스트레이터 중심 설계</h3>
+<p>모든 사용자 요청은 <code>orchestrator_agent</code>를 통해 진입한다. 오케스트레이터는 두 가지 페이즈로 동작한다.</p>
+<ul>
+<li><strong>Phase 1 (계획 수립):</strong> LLM이 사용자 질문을 분석해 <code>[PLAN]</code> 형식의 작업 계획을 생성하고, 첫 번째 에이전트로 라우팅한다.</li>
+<li><strong>Phase 2 (평가 및 계속):</strong> 각 에이전트가 완료되어 돌아오면 결과를 평가하고, 다음 작업으로 진행하거나 모두 완료되면 <code>END</code>로 종료한다. 후속 작업 제안(FOLLOWUP)도 이 단계에서 생성된다.</li>
+</ul>
+<p>LLM 계획 수립이 실패하면 키워드 기반 <code>_fallback_agent()</code>가 작동해 단일 에이전트를 선택한다.</p>
+<h3 id="72-에이전트-간-워크플로우-다이어그램">7.2 에이전트 간 워크플로우 다이어그램</h3>
+<pre><code class="language-mermaid"><div class="mermaid">graph TD
+    START([START])
+    OA[orchestrator_agent]
+    RA[rag_agent]
+    RT[rag_tools]
+    GA[grade_answer]
+    WEB[web_search_agent]
+    WEA[weather_agent]
+    RE[reasoning_agent]
+    DT[direct_tools]
+    SU[summary_agent]
+    ST[summary_tools]
+    TA[task_agent]
+    TT[task_tools]
+    EM[email_agent]
+    IM[image_agent]
+    IT[image_tools]
+    END_NODE([END])
+
+    START --> OA
+    OA -->|rag_agent| RA
+    OA -->|web_search_agent| WEB
+    OA -->|weather_agent| WEA
+    OA -->|reasoning_agent| RE
+    OA -->|summary_agent| SU
+    OA -->|task_agent| TA
+    OA -->|email_agent| EM
+    OA -->|image_agent| IM
+    OA -->|완료| END_NODE
+
+    RA -->|tool_call| RT
+    RT --> RA
+    RA -->|답변 생성| GA
+    GA -->|relevant| OA
+    GA -->|not_relevant, retry 미만| RA
+    GA -->|not_relevant, retry 초과| WEB
+
+    WEB --> OA
+    WEA --> OA
+    EM --> OA
+
+    RE -->|tool_call| DT
+    DT --> RE
+    RE -->|답변 생성| OA
+
+    SU -->|tool_call| ST
+    ST --> SU
+    SU -->|답변 생성| OA
+
+    TA -->|tool_call| TT
+    TT --> TA
+    TA -->|답변 생성| OA
+
+    IM -->|tool_call| IT
+    IT --> IM
+    IM -->|답변 생성| OA
+</div></code></pre>
+<h3 id="73-rag-파이프라인-corrective-rag">7.3 RAG 파이프라인 (Corrective RAG)</h3>
+<pre><code class="language-mermaid"><div class="mermaid">flowchart TD
+    Q["사용자 질문"]
+    RA["rag_agent"]
+    RT["rag_tools"]
+    DB["PostgreSQL 하이브리드 검색"]
+    GA["grade_answer"]
+    REL{"relevant?"}
+    RETRY{"retry 2회 미만?"}
+    WEB["web_search_agent"]
+    ANS["orchestrator_agent"]
+
+    Q --> RA
+    RA -->|search_documents| RT
+    RT -->|검색| DB
+    DB --> RT
+    RT --> RA
+    RA -->|답변 생성| GA
+    GA --> REL
+    REL -->|Yes| ANS
+    REL -->|No| RETRY
+    RETRY -->|Yes| RA
+    RETRY -->|No| WEB
+    WEB --> ANS
+</div></code></pre>
+<h3 id="74-요청-처리-전체-플로우">7.4 요청 처리 전체 플로우</h3>
+<pre><code class="language-mermaid"><div class="mermaid">sequenceDiagram
+    participant U as 사용자
+    participant UI as Streamlit UI
+    participant CS as ChatService
+    participant LG as LangGraph
+    participant OA as orchestrator_agent
+    participant W as Worker 에이전트
+    participant T as Tool
+
+    U->>UI: 메시지 입력
+    UI->>CS: stream_chat()
+    CS->>LG: graph.stream(stream_mode=[messages,updates])
+    LG->>OA: Phase 1 진입
+    OA->>OA: LLM으로 [PLAN] 수립
+    OA-->>CS: STATUS 토큰 (계획 수립 중)
+    CS-->>UI: PLAN_PREFIX 토큰 (계획 카드 표시)
+
+    loop 각 작업 실행
+        OA->>W: 에이전트 라우팅
+        CS-->>UI: STATUS 토큰 (작업 진행 중)
+        W->>T: 도구 호출 (필요시)
+        T-->>W: 결과 반환
+        W->>W: LLM으로 응답 생성
+        W-->>CS: messages 스트림 (토큰)
+        CS-->>UI: 응답 토큰 스트리밍
+        W->>OA: Phase 2 복귀
+        OA->>OA: 결과 평가, 다음 작업 결정
+    end
+
+    OA->>LG: END
+    CS->>CS: DB 저장 (full_response)
+    UI->>U: 최종 응답 표시
+</div></code></pre>
+<hr>
+<h2 id="6-에이전트-상세">6. 에이전트 상세</h2>
+<h3 id="71-orchestrator_agent">7.1 orchestrator_agent</h3>
+<p><strong>역할:</strong> 전체 워크플로우의 진입점이자 제어 허브.</p>
+<p><strong>Phase 1 — 계획 수립</strong></p>
+<ul>
+<li>LLM에게 <code>ORCHESTRATOR_PLAN_PROMPT</code>와 사용자 질문을 전달</li>
+<li>응답에서 <code>[PLAN]...[/PLAN]</code> 블록을 결정론적으로 파싱</li>
+<li><code>_AGENT_ALIASES</code> 딕셔너리로 에이전트 이름 정규화</li>
+<li>LLM 실패 시 <code>_fallback_agent()</code>(키워드 기반)로 단일 작업 생성</li>
+</ul>
+<p><strong>Phase 2 — 평가 및 계속</strong></p>
+<ul>
+<li>마지막 AI 응답을 <code>_is_failed()</code> 패턴으로 품질 평가</li>
+<li>RAG 실패 시 <code>web_search_agent</code> 자동 추가</li>
+<li>모든 작업 완료 시 <code>_llm_derive_followup()</code>으로 후속 제안 생성</li>
+<li><code>route_from_orchestrator()</code> 함수로 다음 노드를 결정론적으로 반환</li>
+</ul>
+<p><strong>프롬프트 포함 정보:</strong></p>
+<ul>
+<li>에이전트 목록 및 선택 기준</li>
+<li><code>[PLAN]</code> 출력 포맷 지시</li>
+<li><code>today_context()</code> (프롬프트 끝에 주입 — 마지막 지시 효과)</li>
+</ul>
+<hr>
+<h3 id="72-rag_agent">7.2 rag_agent</h3>
+<p><strong>역할:</strong> 로컬 지식베이스 문서 검색 (ReAct 루프).</p>
+<ul>
+<li><code>search_documents</code> 도구를 자율적으로 호출해 관련 문서 검색</li>
+<li>라우팅 접두사(&quot;rag에서&quot;, &quot;문서에서&quot; 등)를 쿼리에서 제거</li>
+<li>최대 2회 도구 호출 후 강제 답변 생성 (무한루프 방지)</li>
+<li>답변 생성 완료 시 <code>grade_answer</code>로 이동</li>
+</ul>
+<p><strong>커스텀 ToolNode (<code>rag_tools_node</code>):</strong></p>
+<ul>
+<li>라우팅 접두사 정규표현식으로 쿼리 정제</li>
+<li>이전 메시지 히스토리 비교로 중복 쿼리 차단 → <code>[중복 쿼리 차단]</code> 반환</li>
+</ul>
+<hr>
+<h3 id="73-web_search_agent">7.3 web_search_agent</h3>
+<p><strong>역할:</strong> 웹에서 최신 정보 검색 후 결과 포맷팅.</p>
+<ul>
+<li>LLM 도구 결정 없이 규칙 기반으로 검색 쿼리 1~2개 생성 (<code>_plan_queries()</code>)</li>
+<li>두 쿼리 모두 <code>web_search</code> 도구로 실행 후 결과 통합</li>
+<li>LLM으로 최종 답변 포맷팅</li>
+<li><code>[FOLLOWUP]</code> 마커 파싱 + junk 필터링 후 <code>pending_followup</code> 상태 업데이트</li>
+</ul>
+<hr>
+<h3 id="74-weather_agent">7.4 weather_agent</h3>
+<p><strong>역할:</strong> 날씨 전용 에이전트. LLM 호출 없이 도구 결과를 직접 반환.</p>
+<ul>
+<li>사용자 쿼리에서 지역명을 정규표현식으로 추출</li>
+<li><code>get_weather</code> 도구를 직접 호출 (LLM 판단 없음)</li>
+<li>도구 결과를 <code>AIMessage</code>로 그대로 반환 → LLM 포맷팅 없음 → 빠름</li>
+<li>조회 오류 시 <code>datetime.now()</code>로 정확한 오늘 날짜를 포함한 에러 메시지 반환</li>
+</ul>
+<hr>
+<h3 id="75-reasoning_agent">7.5 reasoning_agent</h3>
+<p><strong>역할:</strong> 일반 추론, 코딩, 수학, 날짜/시간 질문 처리 (ReAct 루프).</p>
+<ul>
+<li><code>web_search</code> 도구를 자율적으로 사용 가능</li>
+<li><code>AGENT_SYSTEM_PROMPT</code> + <code>today_context()</code> 조합으로 현재 날짜 인식</li>
+<li>Generative Agentic Reasoning: 답변 후 후속 작업 자율 판단</li>
+<li><code>[FOLLOWUP]</code> 마커 파싱 + junk 필터링 후 상태 업데이트</li>
+</ul>
+<hr>
+<h3 id="76-summary_agent">7.6 summary_agent</h3>
+<p><strong>역할:</strong> 업로드된 문서 요약 및 정리 (ReAct 루프).</p>
+<ul>
+<li><code>search_documents</code> 도구로 문서 내용 검색</li>
+<li>검색 결과를 바탕으로 구조화된 요약 생성</li>
+</ul>
+<hr>
+<h3 id="77-task_agent">7.7 task_agent</h3>
+<p><strong>역할:</strong> 다단계 작업 실행 (ReAct 루프).</p>
+<ul>
+<li><code>search_documents</code> 도구로 문서 검색</li>
+<li><strong>커스텀 ToolNode (<code>task_tools_node</code>):</strong> 문서 검색 결과가 빈 경우 자동으로 <code>web_search</code> 폴백 실행</li>
+</ul>
+<hr>
+<h3 id="78-email_agent">7.8 email_agent</h3>
+<p><strong>역할:</strong> 이메일 초안 작성.</p>
+<ul>
+<li>도구 없이 LLM만으로 이메일 구조(제목/본문/서명) 작성</li>
+<li>완료 즉시 <code>orchestrator_agent</code>로 복귀</li>
+</ul>
+<hr>
+<h3 id="79-image_agent">7.9 image_agent</h3>
+<p><strong>역할:</strong> 이미지 시각적 내용 분석 (ReAct 루프).</p>
+<ul>
+<li>이미지 처리 도구를 통해 업로드된 이미지 분석</li>
+<li>이미지에서 텍스트, 객체, 레이아웃 등 시각 정보 추출</li>
+</ul>
+<hr>
+<h2 id="7-도구-tools">7. 도구 (Tools)</h2>
+<h3 id="71-에이전트-도구-호출-관계">7.1 에이전트-도구 호출 관계</h3>
+<pre><code class="language-mermaid"><div class="mermaid">graph LR
+    RA[rag_agent]
+    WEB[web_search_agent]
+    WEA[weather_agent]
+    RE[reasoning_agent]
+    SU[summary_agent]
+    TA[task_agent]
+    IM[image_agent]
+
+    SD[search_documents]
+    WS[web_search]
+    GW[get_weather]
+    IT_TOOLS[image_tools]
+
+    RA -->|ReAct| SD
+    SU -->|ReAct| SD
+    TA -->|ReAct 1순위| SD
+    TA -->|ReAct 폴백| WS
+    RE -->|ReAct 필요시| WS
+    WEB -->|직접 호출| WS
+    WEA -->|직접 호출| GW
+    IM -->|ReAct| IT_TOOLS
+</div></code></pre>
+<h3 id="72-도구-목록-및-설명">7.2 도구 목록 및 설명</h3>
+<h4 id="search_documents"><code>search_documents</code></h4>
+<p>로컬 지식베이스(PostgreSQL + pgvector)에서 하이브리드 검색을 수행한다.</p>
+<ul>
+<li><strong>검색 방식:</strong> RRF(Reciprocal Rank Fusion) 기반 BM25 키워드 + 벡터 코사인 유사도 결합</li>
+<li><strong>한국어 보완:</strong> 한국어 쿼리의 경우 벡터 전용 검색을 추가 실행해 영문 표기 청크도 매칭</li>
+<li><strong>필터링:</strong> RRF 점수 하한 + 벡터 거리 절대 상한 + 베스트 매치 기준 적응형 윈도우 3중 필터</li>
+<li><strong>저관련성 경고:</strong> 최상위 결과가 기준 거리를 초과하면 <code>⚠️ 관련성 낮음</code> 경고를 응답에 포함</li>
+<li><strong>메타데이터:</strong> 결과에 <code>[document_refs:...]</code> 블록을 포함해 UI가 출처 패널을 표시할 수 있게 함</li>
+<li><strong>Fallback:</strong> 벡터 검색 결과가 없을 경우 파일명 기반 검색으로 전환</li>
+</ul>
+<h4 id="web_search"><code>web_search</code></h4>
+<p>Naver Search API를 호출해 웹 검색 결과를 반환한다.</p>
+<ul>
+<li><strong>엔드포인트:</strong> <code>https://openapi.naver.com/v1/search/webkr.json</code></li>
+<li><strong>결과 수:</strong> 5개</li>
+<li><strong>정렬:</strong> 관련도순</li>
+<li><strong>후처리:</strong> HTML 태그 제거 후 <code>제목 / 설명 / 출처</code> 형식으로 포맷</li>
+<li><strong>인증:</strong> <code>X-Naver-Client-Id</code> / <code>X-Naver-Client-Secret</code> 헤더</li>
+</ul>
+<h4 id="get_weather"><code>get_weather</code></h4>
+<p>wttr.in API로 실제 날씨 데이터를 조회한다.</p>
+<ul>
+<li><strong>엔드포인트:</strong> <code>https://wttr.in/{location}?format=j1&amp;lang=ko</code></li>
+<li><strong>데이터:</strong> 현재 기온/체감온도/습도/바람/강수량/자외선 + 오늘/내일 예보</li>
+<li><strong>강수확률:</strong> 현재 시각 이후 시간대 중 최대값과 해당 시간대 함께 표시</li>
+<li><strong>날짜:</strong> <code>datetime.now()</code>로 실행 시점의 정확한 날짜 포함</li>
+<li><strong>권장사항:</strong> 강수확률/기온/자외선/습도/풍속 임계값 기반으로 결정론적 생성</li>
+<li><strong>안정성:</strong> 500 에러 시 1초 후 1회 재시도</li>
+</ul>
+<hr>
+<h2 id="8-스트리밍-토큰-시스템">8. 스트리밍 토큰 시스템</h2>
+<p><code>chat_service.py</code>는 LangGraph의 <code>stream_mode=[&quot;messages&quot;,&quot;updates&quot;]</code>를 처리해 특수 접두사 토큰을 UI에 전달한다.</p>
+<table>
+<thead>
+<tr>
+<th>토큰 접두사</th>
+<th>값</th>
+<th>의미</th>
+<th>UI 처리</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>STATUS_PREFIX</code></td>
+<td><code>\x00STATUS:</code></td>
+<td>진행 상황 메시지</td>
+<td>응답 위에 이탤릭 표시</td>
+</tr>
+<tr>
+<td><code>THINK_PREFIX</code></td>
+<td><code>\x00THINK:</code></td>
+<td>Chain-of-Thought 블록</td>
+<td>접힌 expander로 표시</td>
+</tr>
+<tr>
+<td><code>FOLLOWUP_PREFIX</code></td>
+<td><code>\x00FOLLOWUP:</code></td>
+<td>후속 작업 제안</td>
+<td>Yes/No 버튼으로 표시</td>
+</tr>
+<tr>
+<td><code>PLAN_PREFIX</code></td>
+<td><code>\x00PLAN:</code></td>
+<td>오케스트레이터 계획</td>
+<td>응답 위 파란 카드로 표시</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>[FOLLOWUP]</code> 필터링:</strong></p>
+<ul>
+<li>스트리밍 중 <code>_strip_followup_stream()</code> 상태 머신이 <code>[FOLLOWUP]...[/FOLLOWUP]</code> 블록 제거</li>
+<li>토큰 경계 분할 처리 (<code>[</code> / <code>FOLLOWUP</code> / <code>]</code> 로 나뉘어 도착하는 경우)</li>
+<li>DB 저장 전 regex로 잔여물 최종 제거</li>
+</ul>
+<p><strong>날짜 컨텍스트 주입 (<code>today_context()</code>):</strong></p>
+<ul>
+<li>각 노드의 SystemMessage 끝에 주입 (마지막 지시 효과 최대화)</li>
+<li>형식: <code>[현재 날짜/시각 — 반드시 준수] 오늘: YYYY년 MM월 DD일 (X요일) 현재 시각: HH:MM</code></li>
+<li>실행 시점 <code>datetime.now()</code> 기반 — 하드코딩 없음</li>
+</ul>
+<hr>
+<h2 id="9-문서-업로드-및-인제스천">9. 문서 업로드 및 인제스천</h2>
+<h3 id="91-업로드-플로우">9.1 업로드 플로우</h3>
+<p>사용자가 UI에서 파일을 업로드하면 <code>document_service</code> → <code>ingestion_service</code> 순으로 처리된다.</p>
+<pre><code class="language-mermaid"><div class="mermaid">flowchart TD
+    U["사용자"]
+    UI["Streamlit UI"]
+    DS["document_service"]
+    IS["ingestion_service"]
+    FS["파일 시스템\ndata/uploads/"]
+    DB_DOC["documents 테이블"]
+    DB_CHUNK["chunks 테이블"]
+    LG_STATE["LangGraph 체크포인터"]
+
+    U -->|파일 선택 + 범위 선택| UI
+    UI -->|register_document| DS
+    DS -->|SHA256 중복 확인| DB_DOC
+    DS -->|원본 파일 저장| FS
+    DS -->|DB 등록 PENDING| DB_DOC
+    UI -->|ingest_document| IS
+    IS -->|텍스트 추출| IS
+    IS -->|청킹| IS
+    IS -->|임베딩 생성| IS
+    IS -->|청크 + 벡터 저장| DB_CHUNK
+    IS -->|LLM 요약 생성| IS
+    IS -->|요약 청크 저장| DB_CHUNK
+    IS -->|상태 READY| DB_DOC
+    UI -->|SESSION 범위이면 컨텍스트 주입| LG_STATE
+</div></code></pre>
+<p><strong>문서 범위(Scope):</strong></p>
+<ul>
+<li><code>GLOBAL</code> — 모든 세션에서 검색 가능</li>
+<li><code>SESSION</code> — 업로드한 세션에서만 검색 가능. 인제스천 완료 후 LangGraph 체크포인터에 요약을 AI 메시지로 주입해 LLM이 컨텍스트를 즉시 인식하게 한다.</li>
+</ul>
+<hr>
+<h3 id="92-인제스천-파이프라인">9.2 인제스천 파이프라인</h3>
+<p><code>ingestion_service.ingest_document()</code>의 내부 단계. 파일 형식에 따라 텍스트 추출 경로가 분기된다.</p>
+<pre><code class="language-mermaid"><div class="mermaid">flowchart TD
+    START["원본 파일 읽기"]
+    MIME{"파일 형식 판별\nMIME + 확장자"}
+
+    PDF["PDF 로더\npdf_loader.py\n페이지별 추출"]
+    DOCX["DOCX 로더\npython-docx\n문서 파싱"]
+    TXT["TXT/MD 로더\n직접 디코딩"]
+    IMG["이미지 OCR\nTesseract\nkor+eng"]
+
+    CHUNK["청크 분할\nchunker.py\n페이지 단위 or 문자 길이"]
+    EMBED["임베딩 생성\nnomic-embed-text\n768차원 배치 처리"]
+    PGVEC["pgvector 저장\nchunks 테이블"]
+    SUMMARY["LLM 요약 생성\nqwen3:8b\n앞 3000자 + 뒤 2000자 샘플"]
+    SUMCHUNK["요약 청크 저장\nchunk_index=-1"]
+    READY["상태 READY"]
+
+    START --> MIME
+    MIME -->|PDF| PDF
+    MIME -->|DOCX| DOCX
+    MIME -->|TXT / MD / 기타| TXT
+    MIME -->|image| IMG
+
+    PDF --> CHUNK
+    DOCX --> CHUNK
+    TXT --> CHUNK
+    IMG --> CHUNK
+
+    CHUNK --> EMBED
+    EMBED --> PGVEC
+    PGVEC --> SUMMARY
+    SUMMARY --> SUMCHUNK
+    SUMCHUNK --> READY
+</div></code></pre>
+<table>
+<thead>
+<tr>
+<th>단계</th>
+<th>담당 모델/도구</th>
+<th>설명</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>PDF 추출</strong></td>
+<td><code>pdf_loader.py</code></td>
+<td>페이지별 텍스트 추출</td>
+</tr>
+<tr>
+<td><strong>DOCX 추출</strong></td>
+<td><code>python-docx</code></td>
+<td>단락 구조 파싱</td>
+</tr>
+<tr>
+<td><strong>TXT/MD 추출</strong></td>
+<td>직접 디코딩</td>
+<td>UTF-8 디코딩</td>
+</tr>
+<tr>
+<td><strong>이미지 OCR</strong></td>
+<td><strong>Tesseract</strong> (<code>kor+eng</code>)</td>
+<td>PIL로 이미지 열어 OCR 실행. 추출된 텍스트는 이후 동일 파이프라인으로 처리</td>
+</tr>
+<tr>
+<td><strong>청크 분할</strong></td>
+<td><code>chunker.py</code></td>
+<td>페이지 단위 또는 <code>DEFAULT_CHUNK_SIZE=300</code> / <code>OVERLAP=80</code></td>
+</tr>
+<tr>
+<td><strong>임베딩 생성</strong></td>
+<td><strong><code>nomic-embed-text</code></strong> (768차원)</td>
+<td>Ollama 배치 API 호출</td>
+</tr>
+<tr>
+<td><strong>pgvector 저장</strong></td>
+<td>PostgreSQL + pgvector</td>
+<td>텍스트 + 벡터 + 메타데이터 저장</td>
+</tr>
+<tr>
+<td><strong>LLM 요약 생성</strong></td>
+<td><strong><code>qwen3:8b</code></strong> (<code>temperature=0.1</code>, <code>num_predict=700</code>)</td>
+<td>파일명·문서 유형·키워드·영문 키워드 포함 의미 요약</td>
+</tr>
+<tr>
+<td><strong>요약 청크 저장</strong></td>
+<td>PostgreSQL</td>
+<td><code>chunk_index=-1</code>로 저장. 하이브리드 검색 시 자동 포함</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>이미지 업로드 시 주의:</strong> OCR(Tesseract)은 텍스트가 명확한 이미지에 최적화되어 있다. 텍스트가 없거나 복잡한 이미지는 <code>image_agent</code>의 비전 모델(<code>moondream</code>)을 통해 대화 중 분석하는 것이 적합하다. 인제스천 시점의 OCR과 대화 시점의 비전 모델은 서로 다른 경로다.</p>
+</blockquote>
+<hr>
+<h3 id="93-지원-파일-형식">9.3 지원 파일 형식</h3>
+<table>
+<thead>
+<tr>
+<th>형식</th>
+<th>MIME 타입</th>
+<th>처리 방법</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PDF</td>
+<td><code>application/pdf</code></td>
+<td>페이지별 텍스트 추출</td>
+</tr>
+<tr>
+<td>DOCX</td>
+<td><code>application/vnd.openxmlformats...</code></td>
+<td>python-docx 파싱</td>
+</tr>
+<tr>
+<td>TXT</td>
+<td><code>text/plain</code></td>
+<td>직접 디코딩</td>
+</tr>
+<tr>
+<td>Markdown</td>
+<td><code>text/markdown</code></td>
+<td>마크다운 파싱</td>
+</tr>
+<tr>
+<td>이미지 (JPG/PNG 등)</td>
+<td><code>image/*</code></td>
+<td>OCR 텍스트 추출</td>
+</tr>
+<tr>
+<td>텍스트 붙여넣기</td>
+<td>—</td>
+<td>TXT로 변환 후 동일 파이프라인</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="10-데이터베이스-및-상태-관리">10. 데이터베이스 및 상태 관리</h2>
+<h3 id="postgresql-스키마-주요-테이블">PostgreSQL 스키마 (주요 테이블)</h3>
+<table>
+<thead>
+<tr>
+<th>테이블</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sessions</code></td>
+<td>대화 세션 (제목, 모드, 마지막 메시지 시각)</td>
+</tr>
+<tr>
+<td><code>messages</code></td>
+<td>사용자/AI 메시지 (역할, 내용, 메타데이터)</td>
+</tr>
+<tr>
+<td><code>documents</code></td>
+<td>업로드 문서 메타데이터 (파일명, 범위, 상태)</td>
+</tr>
+<tr>
+<td><code>chunks</code></td>
+<td>문서 청크 + 벡터 임베딩 (pgvector)</td>
+</tr>
+<tr>
+<td><code>checkpoints</code></td>
+<td>LangGraph PostgresSaver 체크포인트</td>
+</tr>
+</tbody>
+</table>
+<h3 id="langgraph-상태-chatstate">LangGraph 상태 (<code>ChatState</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>필드</th>
+<th>타입</th>
+<th>설명</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>messages</code></td>
+<td><code>list[BaseMessage]</code></td>
+<td>대화 히스토리 (add_messages 축적)</td>
+</tr>
+<tr>
+<td><code>session_id</code></td>
+<td><code>str</code></td>
+<td>현재 세션 ID</td>
+</tr>
+<tr>
+<td><code>orchestrator_plan</code></td>
+<td><code>list[OrchestratorTask]</code></td>
+<td>오케스트레이터 작업 계획</td>
+</tr>
+<tr>
+<td><code>orchestrator_task_idx</code></td>
+<td><code>int</code></td>
+<td>현재 실행 중인 작업 인덱스</td>
+</tr>
+<tr>
+<td><code>answer_grade</code></td>
+<td><code>str</code></td>
+<td>RAG 답변 품질 (<code>relevant</code>/<code>not_relevant</code>)</td>
+</tr>
+<tr>
+<td><code>rag_retry_count</code></td>
+<td><code>int</code></td>
+<td>RAG 재시도 횟수</td>
+</tr>
+<tr>
+<td><code>pending_followup</code></td>
+<td><code>str</code></td>
+<td>후속 작업 제안 (<code>질문:::작업</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="문서-범위-scope">문서 범위 (Scope)</h3>
+<table>
+<thead>
+<tr>
+<th>범위</th>
+<th>설명</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GLOBAL</code></td>
+<td>모든 세션에서 검색 가능</td>
+</tr>
+<tr>
+<td><code>SESSION</code></td>
+<td>업로드한 세션에서만 검색</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="11-ui-레이어-streamlit">11. UI 레이어 (Streamlit)</h2>
+<h3 id="주요-화면-구성">주요 화면 구성</h3>
+<ul>
+<li><strong>사이드바:</strong> 세션 목록, 대화 생성/삭제/이름 변경, 시스템 진단</li>
+<li><strong>태스크 패널 (사이드바):</strong> task_agent 실행 시 작업 목록 및 진행 상황 실시간 업데이트</li>
+<li><strong>메인 채팅 영역:</strong> 대화 히스토리, 스트리밍 응답</li>
+<li><strong>실행 계획 카드:</strong> 응답 위에 파란 카드로 <code>🧩 실행 계획</code> 표시</li>
+<li><strong>CoT 블록:</strong> <code>🤔 추론 과정</code> 접힌 expander로 표시</li>
+<li><strong>후속 제안 버튼:</strong> <code>✅ 예, 해줘!</code> / <code>❌ 아니요</code> 버튼</li>
+</ul>
+<h3 id="파일-업로드-팝오버">파일 업로드 (팝오버)</h3>
+<p>채팅 입력창 왼쪽 <code>➕</code> 버튼으로 접근:</p>
+<ul>
+<li>파일 업로드 탭: PDF, TXT, MD, DOCX, 이미지</li>
+<li>텍스트 붙여넣기 탭: 직접 입력 후 TXT로 저장</li>
+<li>GLOBAL / SESSION 범위 선택</li>
+</ul>
+<h3 id="출처-패널">출처 패널</h3>
+<p>RAG 응답에 <code>[document_refs:...]</code> 메타데이터가 있으면 <code>📄 출처</code> expander를 표시하고, 원본 파일 다운로드 버튼을 제공한다.</p>
+<hr>
+<h2 id="12-프로젝트-구조">12. 프로젝트 구조</h2>
+<pre class="hljs"><code><div>newChatBot/
+├── apps/
+│   ├── chat_app.py          # Streamlit 메인 UI
+│   └── static/              # 아이콘 등 정적 파일
+├── backend/
+│   ├── chatbot/
+│   │   ├── graph.py         # LangGraph 그래프 정의
+│   │   ├── state.py         # ChatState TypedDict 정의
+│   │   ├── prompts.py       # 모든 시스템 프롬프트
+│   │   ├── tools.py         # search_documents / web_search / get_weather
+│   │   ├── language_utils.py # 텍스트 필터, today_context()
+│   │   ├── routing.py       # 라우팅 유틸리티
+│   │   └── nodes/
+│   │       ├── orchestrator_agent.py  # 오케스트레이터
+│   │       ├── rag_agent.py           # RAG (Corrective)
+│   │       ├── grade_answer.py        # 결정론적 품질 평가
+│   │       ├── web_search_agent.py    # 웹 검색
+│   │       ├── weather_agent.py       # 날씨 (LLM 없음)
+│   │       ├── reasoning_agent.py     # 일반 추론
+│   │       ├── summary_agent.py       # 문서 요약
+│   │       ├── task_agent.py          # 다단계 작업
+│   │       ├── email_agent.py         # 이메일 작성
+│   │       └── image_agent.py         # 이미지 분석
+│   ├── services/
+│   │   ├── chat_service.py     # 스트리밍 처리, DB 저장
+│   │   ├── session_service.py  # 세션 관리
+│   │   ├── document_service.py # 문서 등록
+│   │   ├── ingestion_service.py # 문서 청킹/임베딩
+│   │   └── health_service.py   # 시스템 진단
+│   ├── database/
+│   │   ├── connection.py
+│   │   └── repositories/
+│   │       ├── message_repository.py
+│   │       ├── session_repository.py
+│   │       ├── document_repository.py
+│   │       └── chunk_repository.py    # hybrid_search
+│   ├── rag/
+│   │   ├── chunker.py         # 문서 청킹
+│   │   ├── embeddings.py      # 임베딩 생성
+│   │   └── retriever.py       # 검색 유틸
+│   ├── documents/
+│   │   ├── loaders.py         # 문서 로더 (PDF/TXT/MD/DOCX)
+│   │   ├── pdf_loader.py      # PDF 전용 로더
+│   │   └── image_loader.py    # 이미지 로더
+│   └── config.py              # 환경 설정
+├── data/
+│   ├── uploads/               # 업로드 파일 저장
+│   └── extracted/             # 추출 텍스트 캐시
+├── docker/
+│   └── postgres/init/         # DB 초기화 SQL
+├── docker-compose.yml
+└── requirements.txt
+</div></code></pre>
+
+</body>
+</html>

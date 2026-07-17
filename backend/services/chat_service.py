@@ -17,17 +17,75 @@ from backend.services.session_service import get_session, rename_session, update
 
 _REFS_RE = re.compile(r"\[document_refs:(.+?)\]$", re.DOTALL)
 
+# 최종 응답에서 [FOLLOWUP] 잔여물 제거 (스트리밍 필터가 누락한 경우 대비)
+_FOLLOWUP_CLEANUP_RE = re.compile(r"\[FOLLOWUP\].*?\[/FOLLOWUP\]", re.DOTALL)
+_FOLLOWUP_PARTIAL_RE = re.compile(r"\[/?FOLLOWUP[^\]]*\]?")
+
+
+def _strip_followup_stream(text: str, in_block: bool, buf: str) -> tuple[str, bool, str]:
+    """
+    스트리밍 중 [FOLLOWUP]...[/FOLLOWUP] 블록을 제거한다.
+    토큰 경계에서 태그가 분할되는 경우(예: '[' → 'FOLLOWUP' → ']')도 처리한다.
+    Returns: (visible_text, in_block, remainder_buf)
+    """
+    _OPEN  = "[FOLLOWUP]"
+    _CLOSE = "[/FOLLOWUP]"
+
+    def _partial_prefix(s: str, tag: str) -> int:
+        """s의 끝이 tag의 접두사와 일치하는 최대 길이 반환 (0 = 부분 일치 없음)."""
+        for n in range(min(len(tag) - 1, len(s)), 0, -1):
+            if s.endswith(tag[:n]):
+                return n
+        return 0
+
+    result = ""
+    current = buf + text
+    while current:
+        if in_block:
+            end = current.find(_CLOSE)
+            if end == -1:
+                return result, True, current   # 블록 안, 전체 버퍼 유지
+            current = current[end + len(_CLOSE):]
+            in_block = False
+        else:
+            start = current.find(_OPEN)
+            if start == -1:
+                # 끝 부분이 [FOLLOWUP] 시작의 일부일 수 있으면 버퍼에 남김
+                partial = _partial_prefix(current, _OPEN)
+                if partial:
+                    result += current[:-partial]
+                    return result, False, current[-partial:]
+                result += current
+                return result, False, ""
+            result += current[:start]
+            current = current[start + len(_OPEN):]
+            in_block = True
+    return result, in_block, ""
+
 # worker 에이전트 노드 이름 — 이 노드들의 응답만 사용자에게 스트리밍한다
-_WORKER_NODES = {"rag_agent", "summary_agent", "task_agent", "email_agent", "image_agent", "direct_agent", "web_search_agent"}
+_WORKER_NODES = {"rag_agent", "summary_agent", "task_agent", "email_agent", "image_agent", "reasoning_agent", "web_search_agent", "weather_agent"}
+# orchestrator_agent는 구조 업데이트를 통해 상태 메시지를 방출
 
 # ── 진행 상황 상태 마커 ──────────────────────────────────────────────────────
-# 이 접두사로 시작하는 토큰은 UI가 별도 진행 표시로 처리한다.
-# full_response 에 포함되지 않으므로 DB에 저장되지 않는다.
-STATUS_PREFIX = "\x00STATUS:"
+STATUS_PREFIX   = "\x00STATUS:"
+THINK_PREFIX    = "\x00THINK:"
+FOLLOWUP_PREFIX = "\x00FOLLOWUP:"
 
-# 모델이 <think>...</think> 블록을 생성할 때 추론 내용을 별도 채널로 스트리밍한다.
-# full_response 에 포함되지 않으므로 DB에 저장되지 않는다.
-THINK_PREFIX = "\x00THINK:"
+# orchestrator가 수립한 작업 계획을 UI에 표시한다.
+# 형식: PLAN_PREFIX + "1|agent|설명\n2|agent|설명\n..."
+PLAN_PREFIX = "\x00PLAN:"
+
+# 에이전트 이름 → 사용자 친화적 레이블
+_AGENT_DISPLAY: dict[str, str] = {
+    "rag_agent":        "📄 로컬 문서 검색",
+    "web_search_agent": "🌐 웹 검색",
+    "weather_agent":    "🌤️ 날씨 조회",
+    "email_agent":      "✉️ 이메일 작성",
+    "summary_agent":    "📝 문서 요약",
+    "image_agent":      "🖼️ 이미지 분석",
+    "reasoning_agent":  "💬 추론·답변",
+    "task_agent":       "⚙️ 다중 작업",
+}
 
 # 각 노드의 사용자 친화적 상태 메시지
 _NODE_LABELS: dict[str, str] = {
@@ -36,8 +94,9 @@ _NODE_LABELS: dict[str, str] = {
     "task_agent":         "⚙️ 작업을 처리하고 있습니다",
     "email_agent":        "✉️ 이메일을 작성하고 있습니다",
     "image_agent":        "🖼️ 이미지를 분석하고 있습니다",
-    "direct_agent":       "💬 답변을 작성하고 있습니다",
+    "reasoning_agent":    "💬 답변을 작성하고 있습니다",
     "web_search_agent":   "🌐 웹에서 최신 정보를 검색하고 있습니다",
+    "weather_agent":      "🌤️ 날씨 정보를 조회하고 있습니다",
 }
 
 _msg_repo = MessageRepository()
@@ -76,6 +135,14 @@ def chat(
             "mode": mode,
             "session_id": session_id,
             "retrieved_chunks": None,
+            "next": None,
+            "task_list": None,
+            "task_plan_ready": None,
+            "answer_grade": None,
+            "rag_retry_count": None,
+            "pending_followup": None,
+            "orchestrator_plan": None,
+            "orchestrator_task_idx": None,
         },
         config=config,
     )
@@ -142,9 +209,12 @@ def stream_chat(
 
     full_response = []
     sources = []
-    _last_msg_id: str | None = None  # task_agent 메시지 경계 감지용
-    _node_visits: dict[str, int] = {}  # 노드별 updates 이벤트 횟수 추적
-    _in_think: bool = False            # <think> 블록 파싱 상태
+    _last_msg_id: str | None = None
+    _node_visits: dict[str, int] = {}
+    _in_think: bool = False
+    _in_followup_block: bool = False   # [FOLLOWUP]...[/FOLLOWUP] 블록 스트리밍 중 숨김
+    _followup_buf: str = ""             # 불완전한 [FOLLOWUP] 토큰 버퍼
+    _followup_emitted: bool = False     # FOLLOWUP 토큰 중복 방출 방지
 
     for event_type, event_data in graph.stream(
         {
@@ -152,6 +222,14 @@ def stream_chat(
             "mode": mode,
             "session_id": session_id,
             "retrieved_chunks": None,
+            "next": None,
+            "task_list": None,
+            "task_plan_ready": None,
+            "answer_grade": None,
+            "rag_retry_count": None,
+            "pending_followup": None,
+            "orchestrator_plan": None,
+            "orchestrator_task_idx": None,
         },
         config=config,
         stream_mode=["messages", "updates"],
@@ -161,12 +239,42 @@ def stream_chat(
             node_name = next(iter(event_data), "")
             _node_visits[node_name] = _node_visits.get(node_name, 0) + 1
 
-            if node_name == "supervisor":
-                # supervisor 완료 → 어떤 에이전트가 다음에 실행될지 알림
-                state_delta = event_data.get("supervisor") or {}
-                next_agent = (state_delta.get("next") or "").strip().lower()
-                label = _NODE_LABELS.get(next_agent, "")
-                yield f"{STATUS_PREFIX}{label or '🧭 에이전트를 선택하고 있습니다'}"
+            if node_name == "orchestrator_agent":
+                o_delta = event_data.get("orchestrator_agent") or {}
+                plan = o_delta.get("orchestrator_plan") or []
+                idx  = o_delta.get("orchestrator_task_idx") or 0
+
+                if plan and idx == 0:
+                    # ── Phase 1 완료: 작업 계획 방출 ─────────────────────────
+                    # 형식: "1|agent|설명\n2|agent|설명"
+                    lines = []
+                    for t in plan:
+                        lines.append(f"{t['id']}|{t['agent']}|{t['description']}")
+                    yield f"{PLAN_PREFIX}" + "\n".join(lines)
+
+                elif plan and idx < len(plan):
+                    # ── Phase 2+ : 다음 작업 진행 상태 ──────────────────────
+                    task  = plan[idx]
+                    label = _AGENT_DISPLAY.get(task["agent"], "💡 작업")
+                    desc  = task.get("description", "")[:40]
+                    # RAG 실패 → 자동 web_search 폴백: 사용자에게 이유 알림 (Y/N 버튼 없음)
+                    prev_failed_rag = (
+                        idx > 0
+                        and task["agent"] == "web_search_agent"
+                        and plan[idx - 1].get("status") == "failed"
+                        and plan[idx - 1].get("agent") == "rag_agent"
+                    )
+                    if prev_failed_rag:
+                        yield f"{STATUS_PREFIX}🌐 로컬 문서에 관련 정보가 없어 웹에서 검색합니다..."
+                    else:
+                        yield f"{STATUS_PREFIX}▶ [{idx}/{len(plan)}] {label}: {desc}..."
+
+                # orchestrator가 결정론적으로 도출한 후속 작업 제안
+                # _followup_emitted: 동일 세션에서 다중 방출 방지
+                pf = o_delta.get("pending_followup")
+                if pf and not _followup_emitted:
+                    yield f"{FOLLOWUP_PREFIX}{pf}"
+                    _followup_emitted = True
 
             elif node_name == "rag_agent":
                 # rag_agent 완료 → tool_calls 없으면 grade_answer 가 다음 실행
@@ -190,6 +298,9 @@ def stream_chat(
                         yield f"{STATUS_PREFIX}🌐 문서에서 찾지 못했습니다. 웹 검색으로 전환합니다..."
                     else:
                         yield f"{STATUS_PREFIX}🔄 답변이 충분하지 않습니다. 다시 검색합니다... (재시도 {retry}/2)"
+
+            # reasoning_agent/web_search_agent FOLLOWUP은 orchestrator에서 일괄 처리
+            # (두 곣에서 방출하면 동일 질문이 두 번 표시됨)
 
             continue  # updates 이벤트는 응답 내용이 아님
 
@@ -242,7 +353,12 @@ def stream_chat(
                 _last_msg_id = msg_id
 
         if isinstance(content, str):
-            segments, _in_think = split_think_content(content, _in_think)
+            # [FOLLOWUP]...[/FOLLOWUP] 블록 제거 (스트리밍 중 사용자에게 노출되면 안 됨)
+            visible, _in_followup_block, _followup_buf = \
+                _strip_followup_stream(content, _in_followup_block, _followup_buf)
+            if not visible:
+                continue
+            segments, _in_think = split_think_content(visible, _in_think)
             for is_think, text in segments:
                 if is_think:
                     yield f"{THINK_PREFIX}{text}"
@@ -253,7 +369,11 @@ def stream_chat(
             for block in content:
                 raw = block if isinstance(block, str) else (block.get("text") if isinstance(block, dict) else "")
                 if raw:
-                    segments, _in_think = split_think_content(raw, _in_think)
+                    visible, _in_followup_block, _followup_buf = \
+                        _strip_followup_stream(raw, _in_followup_block, _followup_buf)
+                    if not visible:
+                        continue
+                    segments, _in_think = split_think_content(visible, _in_think)
                     for is_think, text in segments:
                         if is_think:
                             yield f"{THINK_PREFIX}{text}"
@@ -262,6 +382,9 @@ def stream_chat(
                             yield text
 
     response_text = strip_leaked_prompt("".join(full_response))
+    # 스트리밍 필터가 놓친 [FOLLOWUP] 잔여물 최종 제거
+    response_text = _FOLLOWUP_CLEANUP_RE.sub("", response_text)
+    response_text = _FOLLOWUP_PARTIAL_RE.sub("", response_text).strip()
     msg_meta = {"mode": mode.lower()}
     if sources:
         msg_meta["sources"] = sources

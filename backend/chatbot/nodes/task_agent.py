@@ -15,7 +15,7 @@ import logging
 import re
 from functools import lru_cache
 
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
 
 from backend.chatbot.prompts import TASK_PLAN_PROMPT, TASK_EXECUTE_PROMPT
@@ -208,3 +208,59 @@ def task_agent_node(state: ChatState) -> dict:
             "task_list": updated_tasks,
             "task_plan_ready": bool(still_pending),
         }
+
+
+# ── 결정론적 task_tools_node ─────────────────────────────────────────────────
+
+_LOCAL_NOT_FOUND = "관련 문서를 찾을 수 없습니다"
+
+def task_tools_node(state: ChatState) -> dict:
+    """
+    Task 도구 실행 노드 (custom ToolNode 대체).
+
+    search_documents 결과가 비어 있으면 자동으로 web_search로 폴백한다.
+    LLM 프롬프트 지시 없이 코드 레벨에서 결정론적으로 처리.
+    """
+
+    messages = state["messages"]
+    last_ai = messages[-1] if messages else None
+
+    if not isinstance(last_ai, AIMessage) or not getattr(last_ai, "tool_calls", None):
+        return {}
+
+    tool_messages: list[ToolMessage] = []
+
+    for tc in last_ai.tool_calls:
+        tool_name = tc.get("name", "")
+        tool_id   = tc.get("id", "")
+        args      = tc.get("args") or {}
+
+        if tool_name == "search_documents":
+            query  = args.get("query", "").strip()
+            result = search_documents.invoke({"query": query, "state": state})
+
+            # ── [결정론적] 로컬 검색 실패 → web_search 자동 폴백 ────────────
+            # 프롬프트 지시 없이 코드로 보장
+            if _LOCAL_NOT_FOUND in result or len(result.strip()) < 30:
+                _log.info("task_tools: local search empty → falling back to web_search(%r)", query)
+                web_result = web_search.invoke({"query": query})
+                if _LOCAL_NOT_FOUND not in web_result and len(web_result.strip()) >= 30:
+                    result = f"[로컬 문서에 없어 웹 검색으로 대체]\n{web_result}"
+                else:
+                    result = f"로컬 문서와 웹 모두에서 '{query}'에 대한 정보를 찾지 못했습니다."
+
+        elif tool_name == "web_search":
+            result = web_search.invoke(args)
+
+        else:
+            matched = next((t for t in _TOOLS if t.name == tool_name), None)
+            result  = matched.invoke(args) if matched else f"[알 수 없는 도구: {tool_name}]"
+
+        tool_messages.append(ToolMessage(
+            content=str(result),
+            tool_call_id=tool_id,
+            name=tool_name,
+        ))
+
+    return {"messages": tool_messages}
+

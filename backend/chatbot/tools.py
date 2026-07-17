@@ -193,3 +193,158 @@ def web_search(query: str) -> str:
     except Exception as exc:
         _log.error("web_search (Naver) failed: %s", exc)
         return f"웹 검색 중 오류가 발생했습니다: {exc}"
+
+
+@tool
+def get_weather(location: str) -> str:
+    """
+    특정 지역의 현재 날씨와 오늘·내일 예보를 조회합니다.
+    기온, 체감온도, 습도, 바람, 강수확률 등 실제 수치를 반환합니다.
+
+    Args:
+        location: 날씨를 확인할 지역명 (한국어 또는 영어)
+                  예: '서울', '광명 하안1동', '부산 해운대', '제주도', 'Tokyo'
+    """
+    import requests as _req
+    from datetime import datetime as _dt
+
+    # 풍향 코드 → 한국어
+    _WIND_DIR = {
+        "N":"북", "NNE":"북북동", "NE":"북동", "ENE":"동북동",
+        "E":"동", "ESE":"동남동", "SE":"남동", "SSE":"남남동",
+        "S":"남", "SSW":"남남서", "SW":"남서", "WSW":"서남서",
+        "W":"서", "WNW":"서북서", "NW":"북서", "NNW":"북북서",
+    }
+    # 날씨 설명 영→한 번역
+    _WEATHER_KO = {
+        "Sunny": "맑음", "Clear": "맑음", "Partly cloudy": "구름 조금",
+        "Partly Cloudy": "구름 조금", "Cloudy": "흐림", "Overcast": "흐림",
+        "Mist": "안개", "Fog": "안개", "Freezing fog": "결빙 안개",
+        "Patchy rain possible": "비 올 수 있음", "Patchy snow possible": "눈 올 수 있음",
+        "Blowing snow": "눈보라", "Blizzard": "눈보라",
+        "Thundery outbreaks possible": "천둥 올 수 있음",
+        "Patchy light drizzle": "약한 이슬비", "Light drizzle": "이슬비",
+        "Freezing drizzle": "결빙 이슬비", "Heavy freezing drizzle": "강한 결빙 이슬비",
+        "Patchy light rain": "가끔 약한 비", "Light rain": "가벼운 비",
+        "Moderate rain at times": "때때로 보통 비", "Moderate rain": "보통 비",
+        "Heavy rain at times": "때때로 강한 비", "Heavy rain": "강한 비",
+        "Light snow": "약한 눈", "Moderate snow": "보통 눈", "Heavy snow": "폭설",
+        "Ice pellets": "진눈깨비", "Light rain shower": "가벼운 소나기",
+        "Moderate or heavy rain shower": "강한 소나기", "Torrential rain shower": "폭우",
+        "Thunderstorm": "뇌우", "Thunder": "천둥",
+    }
+
+    try:
+        url = f"https://wttr.in/{_req.utils.quote(location)}?format=j1&lang=ko"
+        headers = {"User-Agent": "curl/7.68.0", "Accept-Language": "ko-KR"}
+        resp = _req.get(url, headers=headers, timeout=10)
+        # wttr.in은 간헐적으로 500을 반환함 — 한 번 재시도
+        if resp.status_code >= 500:
+            import time as _time
+            _time.sleep(1)
+            resp = _req.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        cur = data["current_condition"][0]
+        weather_days = data.get("weather", [])
+        today = weather_days[0] if weather_days else {}
+        tomorrow = weather_days[1] if len(weather_days) > 1 else {}
+
+        # 현재 시각 한 번만 가져와 재사용
+        _now = _dt.now()
+        now_h = _now.hour
+
+        # 현재 상태
+        temp      = cur.get("temp_C", "?")
+        feels     = cur.get("FeelsLikeC", "?")
+        humidity  = cur.get("humidity", "?")
+        wind_kmph = cur.get("windspeedKmph", "?")
+        wind_dir  = _WIND_DIR.get(cur.get("winddir16Point", ""), cur.get("winddir16Point", ""))
+        uv        = cur.get("uvIndex", "?")
+        precip_mm = cur.get("precipMM", "0")
+        raw_desc = (
+            (cur.get("lang_ko") or [{}])[0].get("value", "").strip()
+            or (cur.get("weatherDesc") or [{}])[0].get("value", "").strip()
+        )
+        desc_ko = _WEATHER_KO.get(raw_desc, raw_desc)
+
+        # 오늘 예보
+        t_max  = today.get("maxtempC", "?")
+        t_min  = today.get("mintempC", "?")
+        hourly = today.get("hourly", [])
+
+        future_rain = [
+            (int(h.get("time", "0")) // 100, int(h.get("chanceofrain", 0)))
+            for h in hourly
+            if int(h.get("time", "0")) // 100 >= now_h
+        ]
+        rain_pct = 0
+        rain_time_label = ""
+        if future_rain:
+            peak_h, rain_pct = max(future_rain, key=lambda x: x[1])
+            if rain_pct > 0:
+                if peak_h < 12:   rain_time_label = f"오전 {peak_h}시경"
+                elif peak_h < 18: rain_time_label = f"오후 {peak_h - 12}시경"
+                else:             rain_time_label = f"저녁 {peak_h - 12}시경"
+
+        # 내일 예보
+        tmr_max = tomorrow.get("maxtempC", "?")
+        tmr_min = tomorrow.get("mintempC", "?")
+        tmr_rain = max(
+            int(h.get("chanceofrain", 0)) for h in tomorrow.get("hourly", [{"chanceofrain": 0}])
+        )
+
+        # 오늘 날짜 (사용자에게 날짜 기준 명확히 제공)
+        weekday_ko = {"Monday":"월","Tuesday":"화","Wednesday":"수","Thursday":"목",
+                      "Friday":"금","Saturday":"토","Sunday":"일"}
+        today_str_ko = _now.strftime(f"%Y년 %m월 %d일 ({weekday_ko.get(_now.strftime('%A'), '')}요일)")
+
+        # 강수확률 표기: 현재 비 없어도 오후에 높을 수 있으므로 시간 컨텍스트 포함
+        rain_label = (f"{rain_pct}% ({rain_time_label} 최대)" if rain_time_label
+                      else f"{rain_pct}%")
+
+        lines = [
+            f"📍 **{location}** 현재 날씨  ({today_str_ko} 기준)",
+            f"날씨 상태: {desc_ko}",
+            f"🌡 기온: {temp}°C (체감 {feels}°C)",
+            f"💧 습도: {humidity}%",
+            f"🌬 바람: {wind_kmph}km/h ({wind_dir}방향)" if wind_dir else f"🌬 바람: {wind_kmph}km/h",
+            f"🌧 강수량: {precip_mm}mm  |  오늘 남은 시간 최대 강수확률: {rain_label}",
+            f"☀️ 자외선 지수: {uv}",
+            "",
+            f"📅 **오늘 예보 ({today_str_ko})**: 최저 {t_min}°C / 최고 {t_max}°C",
+            f"📅 **내일 예보**: 최저 {tmr_min}°C / 최고 {tmr_max}°C  (강수확률 {tmr_rain}%)",
+        ]
+
+        # ── 결정론적 권장사항 (수치 임계값 기반, LLM 판단 없음) ───────────────
+        advices: list[str] = []
+        try:
+            temp_i = int(temp) if temp != "?" else 0
+            uv_i   = int(uv)   if uv != "?"   else 0
+            wind_i = int(wind_kmph) if wind_kmph != "?" else 0
+            hum_i  = int(humidity)  if humidity != "?"  else 0
+        except (ValueError, TypeError):
+            temp_i = uv_i = wind_i = hum_i = 0
+
+        if rain_pct >= 60:
+            advices.append(f"🌂 오늘 강수확률 {rain_pct}% — 우산을 챙기세요")
+        if tmr_rain >= 70:
+            advices.append(f"☔ 내일 강수확률 {tmr_rain}% — 내일도 우산 필요")
+        if temp_i >= 33:
+            advices.append(f"🔥 기온 {temp}°C — 폭염 주의, 수분 보충 필수")
+        if uv_i >= 6:
+            advices.append(f"🕶️ 자외선 지수 {uv} (높음) — 자외선 차단제·선글라스 착용")
+        if hum_i >= 80:
+            advices.append(f"💦 습도 {humidity}% — 불쾌지수 높음, 실내 냉방 활용")
+        if wind_i >= 30:
+            advices.append(f"💨 풍속 {wind_kmph}km/h — 강풍 주의")
+
+        if advices:
+            lines += ["", "[날씨 권장사항]"] + [f"  • {a}" for a in advices]
+
+        return "\n".join(lines)
+
+    except Exception as exc:
+        _log.error("get_weather failed for %r: %s", location, exc)
+        return f"날씨 정보 조회 중 오류가 발생했습니다: {exc}"

@@ -65,6 +65,10 @@ class Settings:
     naver_client_id: str
     naver_client_secret: str
 
+    # Naver Weather API
+    naver_weather_client_id: str
+    naver_weather_client_secret: str
+
     @property
     def dsn(self) -> str:
         """psycopg DSN 문자열."""
@@ -102,6 +106,8 @@ def load_settings() -> Settings:
         default_retrieval_top_k=_get_int("DEFAULT_RETRIEVAL_TOP_K", 5),
         naver_client_id=_get_str("NAVER_CLIENT_ID", ""),
         naver_client_secret=_get_str("NAVER_CLIENT_SECRET", ""),
+        naver_weather_client_id=_get_str("NAVER_WEATHER_CLIENT_ID", ""),
+        naver_weather_client_secret=_get_str("NAVER_WEATHER_CLIENT_SECRET", ""),
     )
 
 

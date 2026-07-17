@@ -1,1147 +1,751 @@
-# Local AI Assistant 프로젝트 설계
+# ChatSELMA Bluebook v1.0
 
-## 1. 프로젝트 목표
-
-이 프로젝트의 목표는 `Ollama + Gemma 3 4B + LangChain + LangGraph + PostgreSQL + pgvector`를 사용해 로컬에서 동작하는 개인 업무 비서를 만드는 것이다.
-
-시스템은 크게 두 개의 애플리케이션으로 구성한다.
-
-1. Chat Application
-2. Admin Application
-
-Chat Application은 ChatGPT처럼 세션별 대화를 생성하고, 이전 대화를 조회하거나 삭제하며, 일반 대화와 RAG 기반 대화를 수행한다.
-
-Admin Application은 업무 문서를 업로드하고, 텍스트 추출, OCR, 청크 생성, 임베딩 생성, 벡터 저장, 문서 삭제 및 재처리 등을 관리한다.
+> 로컬 AI 챗봇 ChatSELMA의 현재 아키텍처 및 구현 설명서
 
 ---
 
-# 2. 핵심 기능
+## 목차
 
-## 2.1 Chat Application
-
-Chat Application은 일반 사용자가 사용하는 대화 화면이다.
-
-주요 기능은 다음과 같다.
-
-* 새 대화 세션 생성
-* 세션 목록 조회
-* 세션 선택
-* 이전 대화 이어가기
-* 세션 제목 변경
-* 세션 삭제
-* 전체 대화 기록 저장
-* 일반 대화
-* RAG 기반 대화
-* 스트리밍 응답
-* 답변 출처 및 페이지 표시
-
-초기 버전에서는 다음 두 가지 대화 모드를 제공한다.
-
-```text
-일반 대화
-지식 검색
-```
-
-추후 자동 모드를 추가할 수 있다.
-
-```text
-자동 모드
-  ├─ 일반 질문 → 일반 대화
-  └─ 업무 지식 질문 → RAG 검색
-```
+1. [시스템 개요](#1-시스템-개요)
+2. [기술 스택](#2-기술-스택)
+3. [사용 모델](#3-사용-모델)
+4. [전체 아키텍처](#4-전체-아키텍처)
+5. [멀티 에이전트 워크플로우](#5-멀티-에이전트-워크플로우)
+   - 5.1 [오케스트레이터 중심 설계](#51-오케스트레이터-중심-설계)
+   - 5.2 [에이전트 간 워크플로우 다이어그램](#52-에이전트-간-워크플로우-다이어그램)
+   - 5.3 [RAG 파이프라인 (Corrective RAG)](#53-rag-파이프라인-corrective-rag)
+   - 5.4 [요청 처리 전체 플로우](#54-요청-처리-전체-플로우)
+6. [에이전트 상세](#6-에이전트-상세)
+   - 6.1 [orchestrator_agent](#61-orchestrator_agent)
+   - 6.2 [rag_agent](#62-rag_agent)
+   - 6.3 [web_search_agent](#63-web_search_agent)
+   - 6.4 [weather_agent](#64-weather_agent)
+   - 6.5 [reasoning_agent](#65-reasoning_agent)
+   - 6.6 [summary_agent](#66-summary_agent)
+   - 6.7 [task_agent](#67-task_agent)
+   - 6.8 [email_agent](#68-email_agent)
+   - 6.9 [image_agent](#69-image_agent)
+7. [도구 (Tools)](#7-도구-tools)
+   - 7.1 [에이전트-도구 호출 관계](#71-에이전트-도구-호출-관계)
+   - 7.2 [도구 목록 및 설명](#72-도구-목록-및-설명)
+8. [스트리밍 토큰 시스템](#8-스트리밍-토큰-시스템)
+9. [문서 업로드 및 인제스천](#9-문서-업로드-및-인제스천)
+   - 9.1 [업로드 플로우](#91-업로드-플로우)
+   - 9.2 [인제스천 파이프라인](#92-인제스천-파이프라인)
+   - 9.3 [지원 파일 형식](#93-지원-파일-형식)
+10. [데이터베이스 및 상태 관리](#10-데이터베이스-및-상태-관리)
+11. [UI 레이어 (Streamlit)](#11-ui-레이어-streamlit)
+12. [프로젝트 구조](#12-프로젝트-구조)
 
 ---
 
-## 2.2 Admin Application
+## 1. 시스템 개요
 
-Admin Application은 개인 지식베이스를 관리하는 화면이다.
+ChatSELMA는 LangGraph 기반의 멀티 에이전트 로컬 AI 챗봇이다. 사용자의 질문 의도를 오케스트레이터가 분석해 적절한 전문 에이전트에게 위임하고, 그 결과를 통합하여 응답한다.
 
-주요 기능은 다음과 같다.
-
-* PDF 업로드
-* TXT 업로드
-* Markdown 업로드
-* DOCX 업로드
-* 이미지 업로드
-* 원본 파일 저장
-* 텍스트 추출
-* OCR 처리
-* 청크 생성
-* 청크 미리보기
-* 임베딩 생성
-* pgvector 저장
-* 문서 목록 조회
-* 문서 상태 확인
-* 문서 재처리
-* 재벡터화
-* 문서 비활성화
-* 문서 삭제
-* 태그 관리
-* 카테고리 관리
-* 오류 메시지 확인
-
-Chat Application에서는 문서 업로드나 벡터 관리 기능을 제공하지 않는다.
-
-Admin Application에서는 일반 채팅이나 대화 세션 관리 기능을 제공하지 않는다.
+**핵심 특징:**
+- 오케스트레이터가 계획을 수립하고 전문 에이전트를 순차적으로 호출
+- 문서 기반 RAG에 품질 평가(Corrective RAG) 적용
+- 웹 검색, 날씨 조회, 이미지 분석 등 다양한 실시간 도구 통합
+- 모든 연산은 로컬 환경에서 실행 (Ollama + PostgreSQL)
+- Streamlit을 통한 실시간 스트리밍 응답 UI
 
 ---
 
-# 3. 최종 기술 스택
+## 2. 기술 스택
 
-```text
-생성 모델
-  Ollama + gemma3:4b
+| 구성요소 | 기술 | 비고 |
+|---------|------|------|
+| LLM | qwen3:8b (Ollama) | `http://localhost:11434` |
+| 멀티 에이전트 프레임워크 | LangGraph | PostgresSaver 체크포인터 |
+| 벡터 DB | PostgreSQL (pgvector) | 하이브리드 검색 (BM25 + 벡터) |
+| 임베딩 | 로컬 임베딩 모델 | |
+| 웹 검색 | Naver Search API | `openapi.naver.com` |
+| 날씨 | wttr.in | JSON 포맷 조회 |
+| UI | Streamlit | 포트 8501 |
+| 앱 DB | PostgreSQL | 세션/메시지/문서 저장 |
+| 컨테이너 | Docker Compose | PostgreSQL 포함 |
 
-임베딩 모델
-  Ollama 기반 별도 임베딩 모델
+---
 
-LLM 연동
-  LangChain
+## 3. 사용 모델
 
-대화 및 RAG 워크플로
-  LangGraph
+시스템에서 역할별로 서로 다른 모델을 사용한다. 모두 Ollama를 통해 로컬 실행된다.
 
-데이터베이스
-  PostgreSQL
+### 모델별 담당 파트 전체 그림
 
-벡터 저장 및 검색
-  pgvector
+```mermaid
+graph TD
+    subgraph LLM["qwen3:8b (OLLAMA_MODEL)"]
+        OA_LLM["orchestrator_agent\n계획 수립 / followup 판단"]
+        RE_LLM["reasoning_agent\n일반 추론 / 답변 생성"]
+        WEB_LLM["web_search_agent\n검색 결과 포맷팅"]
+        SU_LLM["summary_agent\n문서 요약"]
+        TA_LLM["task_agent\n작업 실행 / 답변"]
+        EM_LLM["email_agent\n이메일 초안"]
+        IM_LLM["image_agent\n이미지 분석 결과 포맷팅"]
+        ING_LLM["ingestion\n문서 semantic 요약 생성"]
+    end
 
-프론트엔드
-  Streamlit
+    subgraph EMBED["nomic-embed-text (OLLAMA_EMBEDDING_MODEL)"]
+        ING_EMB["ingestion\n청크 임베딩 배치 생성"]
+        QUERY_EMB["search_documents\n쿼리 벡터화"]
+    end
 
-원본 문서 저장
-  로컬 파일 시스템
+    subgraph VISION["moondream (OLLAMA_VISION_MODEL)"]
+        IM_VIS["image_agent\n이미지 시각적 설명 생성"]
+    end
 
-개발 언어
-  Python
+    subgraph OCR["Tesseract (로컬 설치)"]
+        ING_OCR["ingestion\n이미지 파일 OCR 텍스트 추출"]
+    end
 ```
 
 ---
 
-# 4. 전체 아키텍처
+### 언어 모델 (LLM)
 
-```text
-┌───────────────────────────────┐
-│ Chat Application              │
-│                               │
-│ - 세션 생성                   │
-│ - 세션 조회                   │
-│ - 세션 삭제                   │
-│ - 일반 대화                   │
-│ - RAG 대화                    │
-│ - 대화 기록 조회              │
-│ - 출처 표시                   │
-└───────────────┬───────────────┘
-                │
-                │
-┌───────────────▼───────────────┐
-│ Common Backend                │
-│                               │
-│ - Session Service             │
-│ - Chat Service                │
-│ - Document Service            │
-│ - Ingestion Service           │
-│ - RAG Service                 │
-│ - LangGraph                   │
-│ - LangChain                   │
-└───────┬───────────────┬───────┘
-        │               │
-        ▼               ▼
-PostgreSQL           Ollama
-+ pgvector           ├─ gemma3:4b
-                     └─ embedding model
-        │
-        ▼
-File System
-원본 PDF / 이미지 / DOCX
-```
+| 항목 | 값 |
+|------|-----|
+| 모델 | `qwen3:8b` (환경변수 `OLLAMA_MODEL`로 교체 가능) |
+| 엔드포인트 | `http://localhost:11434` |
+| 기본값 (env_template) | `qwen2.5:7b` |
+| 대안 모델 | `llama3.1:8b` 등 Ollama 호환 모델 |
 
-Admin Application도 동일한 공통 Backend를 사용한다.
+**주요 파라미터:**
 
-```text
-┌───────────────────────────────┐
-│ Admin Application             │
-│                               │
-│ - 문서 업로드                 │
-│ - 텍스트 추출                 │
-│ - OCR                         │
-│ - 청크 미리보기               │
-│ - 벡터화                      │
-│ - 문서 재처리                 │
-│ - 문서 삭제                   │
-│ - 상태 관리                   │
-│ - 태그 및 카테고리 관리       │
-└───────────────┬───────────────┘
-                │
-                ▼
-          Common Backend
+| 파라미터 | 기본값 | 환경변수 | 설명 |
+|---------|--------|---------|------|
+| `temperature` | 0.2 | `LLM_TEMPERATURE` | 응답 창의성 (orchestrator/grade_answer는 0.0 고정) |
+| `num_ctx` | 8192 | `LLM_NUM_CTX` | 컨텍스트 윈도우 크기 |
+| `num_predict` | 1024 | `LLM_NUM_PREDICT` | 최대 출력 토큰 수 |
+
+**노드별 모델 설정 차이:**
+
+| 노드 | temperature | num_ctx | num_predict | 비고 |
+|------|-------------|---------|-------------|------|
+| orchestrator_agent (계획) | 0.0 | settings | 256 | 결정론적 계획 생성 |
+| orchestrator_agent (followup) | 0.0 | 2048 | 100 | 짧은 후속 제안 |
+| reasoning_agent | settings | settings | settings | 일반 설정 사용 |
+| web_search_agent | settings | settings | settings | 일반 설정 사용 |
+| summary_agent | settings | settings | settings | 일반 설정 사용 |
+| task_agent | settings | settings | settings | 일반 설정 사용 |
+| ingestion (요약) | 0.1 | — | 700 | 문서 요약 전용 |
+
+**`/no_think` 지시어:**
+`qwen3` 계열 모델은 `<think>` 블록으로 내부 추론 과정을 출력한다. `rag_agent`, `web_search_agent` 등 빠른 응답이 필요한 노드는 시스템 프롬프트 끝에 `/no_think`를 포함해 thinking 과정을 생략한다.
+
+---
+
+### 임베딩 모델
+
+| 항목 | 값 |
+|------|-----|
+| 모델 | `nomic-embed-text` |
+| 환경변수 | `OLLAMA_EMBEDDING_MODEL` |
+| 벡터 차원 | 768 |
+| 용도 | 문서 청크 임베딩, 쿼리 벡터화 |
+| 처리 방식 | 인제스천 시 배치(`get_embeddings_batch`), 검색 시 단건(`get_embeddings`) |
+
+---
+
+### 비전 모델 (이미지 분석)
+
+| 항목 | 값 |
+|------|-----|
+| 모델 | `moondream` (환경변수 `OLLAMA_VISION_MODEL`로 교체 가능) |
+| 대안 모델 | `llava:7b` 등 멀티모달 지원 모델 |
+| `num_predict` | 512 |
+| 용도 | `image_agent`의 `_call_vision_model()` — 이미지를 base64로 인코딩 후 시각적 설명 생성 |
+
+---
+
+## 4. 전체 아키텍처
+
+```mermaid
+graph TD
+    User["사용자 브라우저"]
+    UI["Streamlit UI"]
+    CS["ChatService"]
+    LG["LangGraph 그래프"]
+    OA["orchestrator_agent"]
+    Workers["Worker 에이전트"]
+    Tools["도구 레이어"]
+    PG["PostgreSQL"]
+    Ollama["Ollama / qwen3:8b"]
+    Naver["Naver Search API"]
+    Wttr["wttr.in"]
+
+    User -->|HTTP| UI
+    UI -->|stream_chat| CS
+    CS -->|stream_mode=messages+updates| LG
+    LG --> OA
+    OA -->|라우팅| Workers
+    Workers -->|도구 호출| Tools
+    Tools -->|벡터 검색| PG
+    Tools -->|HTTP| Naver
+    Tools -->|HTTP| Wttr
+    Workers -->|LLM 호출| Ollama
+    OA -->|LLM 호출| Ollama
+    CS -->|저장 및 조회| PG
+    LG -->|체크포인트| PG
 ```
 
 ---
 
-# 5. PostgreSQL의 역할
+## 5. 멀티 에이전트 워크플로우
 
-PostgreSQL은 시스템의 기준 데이터 저장소다.
+### 7.1 오케스트레이터 중심 설계
 
-다음 데이터를 저장한다.
+모든 사용자 요청은 `orchestrator_agent`를 통해 진입한다. 오케스트레이터는 두 가지 페이즈로 동작한다.
 
-```text
-사용자
-대화 세션
-전체 메시지 기록
-문서 메타데이터
-문서 청크
-임베딩 벡터
-문서 태그
-문서 카테고리
-문서 처리 상태
-오류 정보
-장기 사용자 기억
-LangGraph 체크포인트
+- **Phase 1 (계획 수립):** LLM이 사용자 질문을 분석해 `[PLAN]` 형식의 작업 계획을 생성하고, 첫 번째 에이전트로 라우팅한다.
+- **Phase 2 (평가 및 계속):** 각 에이전트가 완료되어 돌아오면 결과를 평가하고, 다음 작업으로 진행하거나 모두 완료되면 `END`로 종료한다. 후속 작업 제안(FOLLOWUP)도 이 단계에서 생성된다.
+
+LLM 계획 수립이 실패하면 키워드 기반 `_fallback_agent()`가 작동해 단일 에이전트를 선택한다.
+
+### 7.2 에이전트 간 워크플로우 다이어그램
+
+```mermaid
+graph TD
+    START([START])
+    OA[orchestrator_agent]
+    RA[rag_agent]
+    RT[rag_tools]
+    GA[grade_answer]
+    WEB[web_search_agent]
+    WEA[weather_agent]
+    RE[reasoning_agent]
+    DT[direct_tools]
+    SU[summary_agent]
+    ST[summary_tools]
+    TA[task_agent]
+    TT[task_tools]
+    EM[email_agent]
+    IM[image_agent]
+    IT[image_tools]
+    END_NODE([END])
+
+    START --> OA
+    OA -->|rag_agent| RA
+    OA -->|web_search_agent| WEB
+    OA -->|weather_agent| WEA
+    OA -->|reasoning_agent| RE
+    OA -->|summary_agent| SU
+    OA -->|task_agent| TA
+    OA -->|email_agent| EM
+    OA -->|image_agent| IM
+    OA -->|완료| END_NODE
+
+    RA -->|tool_call| RT
+    RT --> RA
+    RA -->|답변 생성| GA
+    GA -->|relevant| OA
+    GA -->|not_relevant, retry 미만| RA
+    GA -->|not_relevant, retry 초과| WEB
+
+    WEB --> OA
+    WEA --> OA
+    EM --> OA
+
+    RE -->|tool_call| DT
+    DT --> RE
+    RE -->|답변 생성| OA
+
+    SU -->|tool_call| ST
+    ST --> SU
+    SU -->|답변 생성| OA
+
+    TA -->|tool_call| TT
+    TT --> TA
+    TA -->|답변 생성| OA
+
+    IM -->|tool_call| IT
+    IT --> IM
+    IM -->|답변 생성| OA
 ```
 
-pgvector는 PostgreSQL 안에서 임베딩 벡터 검색을 담당한다.
+### 7.3 RAG 파이프라인 (Corrective RAG)
 
-별도의 Qdrant는 사용하지 않는다.
+```mermaid
+flowchart TD
+    Q["사용자 질문"]
+    RA["rag_agent"]
+    RT["rag_tools"]
+    DB["PostgreSQL 하이브리드 검색"]
+    GA["grade_answer"]
+    REL{"relevant?"}
+    RETRY{"retry 2회 미만?"}
+    WEB["web_search_agent"]
+    ANS["orchestrator_agent"]
 
-```text
-PostgreSQL
-  ├─ 관계형 데이터
-  ├─ JSONB 메타데이터
-  ├─ 전문 검색
-  └─ pgvector 벡터 검색
+    Q --> RA
+    RA -->|search_documents| RT
+    RT -->|검색| DB
+    DB --> RT
+    RT --> RA
+    RA -->|답변 생성| GA
+    GA --> REL
+    REL -->|Yes| ANS
+    REL -->|No| RETRY
+    RETRY -->|Yes| RA
+    RETRY -->|No| WEB
+    WEB --> ANS
 ```
 
----
+### 7.4 요청 처리 전체 플로우
 
-# 6. 원본 파일 저장 방식
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant UI as Streamlit UI
+    participant CS as ChatService
+    participant LG as LangGraph
+    participant OA as orchestrator_agent
+    participant W as Worker 에이전트
+    participant T as Tool
 
-원본 문서는 PostgreSQL 내부에 저장하지 않는다.
+    U->>UI: 메시지 입력
+    UI->>CS: stream_chat()
+    CS->>LG: graph.stream(stream_mode=[messages,updates])
+    LG->>OA: Phase 1 진입
+    OA->>OA: LLM으로 [PLAN] 수립
+    OA-->>CS: STATUS 토큰 (계획 수립 중)
+    CS-->>UI: PLAN_PREFIX 토큰 (계획 카드 표시)
 
-파일 시스템에 저장하고 PostgreSQL에는 경로만 저장한다.
+    loop 각 작업 실행
+        OA->>W: 에이전트 라우팅
+        CS-->>UI: STATUS 토큰 (작업 진행 중)
+        W->>T: 도구 호출 (필요시)
+        T-->>W: 결과 반환
+        W->>W: LLM으로 응답 생성
+        W-->>CS: messages 스트림 (토큰)
+        CS-->>UI: 응답 토큰 스트리밍
+        W->>OA: Phase 2 복귀
+        OA->>OA: 결과 평가, 다음 작업 결정
+    end
 
-```text
-data/
-├── uploads/
-│   └── {document_id}/
-│       └── original.pdf
-│
-└── extracted/
-    └── {document_id}/
-        └── extracted.txt
-```
-
-예시:
-
-```text
-data/uploads/550e8400-e29b-41d4-a716-446655440000/original.pdf
-```
-
-PostgreSQL에는 다음 정보가 저장된다.
-
-```text
-document_id
-file_name
-original_path
-extracted_text_path
-mime_type
-status
-category
-metadata
-```
-
----
-
-# 7. 핵심 데이터베이스 테이블
-
-## 7.1 pgvector 확장
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
----
-
-## 7.2 chat_sessions
-
-대화 세션을 저장한다.
-
-```sql
-CREATE TABLE chat_sessions (
-    id UUID PRIMARY KEY,
-    title TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
----
-
-## 7.3 chat_messages
-
-세션별 전체 대화 기록을 저장한다.
-
-```sql
-CREATE TABLE chat_messages (
-    id UUID PRIMARY KEY,
-    session_id UUID NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT fk_chat_messages_session
-        FOREIGN KEY (session_id)
-        REFERENCES chat_sessions(id)
-        ON DELETE CASCADE
-);
-```
-
-`role` 값 예시:
-
-```text
-user
-assistant
-system
-tool
-```
-
----
-
-## 7.4 documents
-
-업로드된 문서 정보를 저장한다.
-
-```sql
-CREATE TABLE documents (
-    id UUID PRIMARY KEY,
-    file_name TEXT NOT NULL,
-    original_path TEXT NOT NULL,
-    extracted_text_path TEXT,
-    mime_type TEXT,
-    category TEXT,
-    status TEXT NOT NULL,
-    chunk_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+    OA->>LG: END
+    CS->>CS: DB 저장 (full_response)
+    UI->>U: 최종 응답 표시
 ```
 
 ---
 
-## 7.5 document_chunks
+## 6. 에이전트 상세
 
-문서 청크와 임베딩 벡터를 저장한다.
+### 7.1 orchestrator_agent
 
-```sql
-CREATE TABLE document_chunks (
-    id UUID PRIMARY KEY,
-    document_id UUID NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    page_number INTEGER,
-    content TEXT NOT NULL,
-    metadata JSONB,
-    embedding VECTOR(768),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+**역할:** 전체 워크플로우의 진입점이자 제어 허브.
 
-    CONSTRAINT fk_document_chunks_document
-        FOREIGN KEY (document_id)
-        REFERENCES documents(id)
-        ON DELETE CASCADE
-);
-```
+**Phase 1 — 계획 수립**
+- LLM에게 `ORCHESTRATOR_PLAN_PROMPT`와 사용자 질문을 전달
+- 응답에서 `[PLAN]...[/PLAN]` 블록을 결정론적으로 파싱
+- `_AGENT_ALIASES` 딕셔너리로 에이전트 이름 정규화
+- LLM 실패 시 `_fallback_agent()`(키워드 기반)로 단일 작업 생성
 
-`VECTOR(768)`은 예시다.
+**Phase 2 — 평가 및 계속**
+- 마지막 AI 응답을 `_is_failed()` 패턴으로 품질 평가
+- RAG 실패 시 `web_search_agent` 자동 추가
+- 모든 작업 완료 시 `_llm_derive_followup()`으로 후속 제안 생성
+- `route_from_orchestrator()` 함수로 다음 노드를 결정론적으로 반환
 
-실제 차원은 사용하는 임베딩 모델의 차원과 반드시 같아야 한다.
-
-예:
-
-```text
-768차원 모델 → VECTOR(768)
-1024차원 모델 → VECTOR(1024)
-```
+**프롬프트 포함 정보:**
+- 에이전트 목록 및 선택 기준
+- `[PLAN]` 출력 포맷 지시
+- `today_context()` (프롬프트 끝에 주입 — 마지막 지시 효과)
 
 ---
 
-## 7.6 document_tags
+### 7.2 rag_agent
 
-문서 태그를 저장한다.
+**역할:** 로컬 지식베이스 문서 검색 (ReAct 루프).
 
-```sql
-CREATE TABLE document_tags (
-    document_id UUID NOT NULL,
-    tag TEXT NOT NULL,
+- `search_documents` 도구를 자율적으로 호출해 관련 문서 검색
+- 라우팅 접두사("rag에서", "문서에서" 등)를 쿼리에서 제거
+- 최대 2회 도구 호출 후 강제 답변 생성 (무한루프 방지)
+- 답변 생성 완료 시 `grade_answer`로 이동
 
-    PRIMARY KEY (document_id, tag),
-
-    CONSTRAINT fk_document_tags_document
-        FOREIGN KEY (document_id)
-        REFERENCES documents(id)
-        ON DELETE CASCADE
-);
-```
+**커스텀 ToolNode (`rag_tools_node`):**
+- 라우팅 접두사 정규표현식으로 쿼리 정제
+- 이전 메시지 히스토리 비교로 중복 쿼리 차단 → `[중복 쿼리 차단]` 반환
 
 ---
 
-## 7.7 ingestion_jobs
+### 7.3 web_search_agent
 
-문서 처리 작업 상태를 저장한다.
+**역할:** 웹에서 최신 정보 검색 후 결과 포맷팅.
 
-```sql
-CREATE TABLE ingestion_jobs (
-    id UUID PRIMARY KEY,
-    document_id UUID NOT NULL,
-    job_type TEXT NOT NULL,
-    status TEXT NOT NULL,
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    error_message TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    CONSTRAINT fk_ingestion_jobs_document
-        FOREIGN KEY (document_id)
-        REFERENCES documents(id)
-        ON DELETE CASCADE
-);
-```
+- LLM 도구 결정 없이 규칙 기반으로 검색 쿼리 1~2개 생성 (`_plan_queries()`)
+- 두 쿼리 모두 `web_search` 도구로 실행 후 결과 통합
+- LLM으로 최종 답변 포맷팅
+- `[FOLLOWUP]` 마커 파싱 + junk 필터링 후 `pending_followup` 상태 업데이트
 
 ---
 
-# 8. 문서 상태값
+### 7.4 weather_agent
 
-권장 상태값은 다음과 같다.
+**역할:** 날씨 전용 에이전트. LLM 호출 없이 도구 결과를 직접 반환.
 
-```text
-UPLOADED
-EXTRACTING
-CHUNKING
-EMBEDDING
-READY
-FAILED
-INACTIVE
-DELETED
-```
-
-처리 흐름은 다음과 같다.
-
-```text
-파일 업로드
-   ↓
-UPLOADED
-   ↓
-텍스트 추출 또는 OCR
-   ↓
-EXTRACTING
-   ↓
-청크 생성
-   ↓
-CHUNKING
-   ↓
-임베딩 생성
-   ↓
-EMBEDDING
-   ↓
-PostgreSQL + pgvector 저장
-   ↓
-READY
-```
-
-오류가 발생하면 다음과 같이 저장한다.
-
-```text
-status = FAILED
-error_message = 오류 내용
-```
+- 사용자 쿼리에서 지역명을 정규표현식으로 추출
+- `get_weather` 도구를 직접 호출 (LLM 판단 없음)
+- 도구 결과를 `AIMessage`로 그대로 반환 → LLM 포맷팅 없음 → 빠름
+- 조회 오류 시 `datetime.now()`로 정확한 오늘 날짜를 포함한 에러 메시지 반환
 
 ---
 
-# 9. 대화 세션과 LangGraph 연결
+### 7.5 reasoning_agent
 
-하나의 Chat 세션은 하나의 LangGraph thread와 대응한다.
+**역할:** 일반 추론, 코딩, 수학, 날짜/시간 질문 처리 (ReAct 루프).
 
-```text
-chat_sessions.id
-        =
-LangGraph thread_id
-```
-
-LangGraph 호출 예시는 다음과 같다.
-
-```python
-config = {
-    "configurable": {
-        "thread_id": str(session_id),
-    }
-}
-```
-
-현재 개발 단계에서 사용하는 `InMemorySaver`는 프로그램이 종료되면 대화 상태가 사라진다.
-
-최종 구조에서는 PostgreSQL 기반 LangGraph checkpointer를 사용한다.
-
-역할은 다음처럼 구분한다.
-
-```text
-chat_sessions
-  세션 목록과 제목 관리
-
-chat_messages
-  전체 대화 기록 저장 및 UI 표시
-
-LangGraph Checkpointer
-  그래프 실행 상태와 대화 문맥 저장
-```
+- `web_search` 도구를 자율적으로 사용 가능
+- `AGENT_SYSTEM_PROMPT` + `today_context()` 조합으로 현재 날짜 인식
+- Generative Agentic Reasoning: 답변 후 후속 작업 자율 판단
+- `[FOLLOWUP]` 마커 파싱 + junk 필터링 후 상태 업데이트
 
 ---
 
-# 10. Chat 처리 흐름
+### 7.6 summary_agent
 
-## 10.1 일반 대화 모드
+**역할:** 업로드된 문서 요약 및 정리 (ReAct 루프).
 
-```text
-사용자 질문
-   ↓
-세션의 최근 대화 기록 조회
-   ↓
-시스템 프롬프트 구성
-   ↓
-gemma3:4b 호출
-   ↓
-응답 스트리밍
-   ↓
-사용자 메시지 저장
-   ↓
-AI 메시지 저장
-```
+- `search_documents` 도구로 문서 내용 검색
+- 검색 결과를 바탕으로 구조화된 요약 생성
 
 ---
 
-## 10.2 RAG 대화 모드
+### 7.7 task_agent
 
-```text
-사용자 질문
-   ↓
-질문 임베딩 생성
-   ↓
-pgvector 유사도 검색
-   ↓
-관련 문서 청크 조회
-   ↓
-시스템 프롬프트 구성
-   ↓
-최근 대화 + 검색 문서 + 사용자 질문 전달
-   ↓
-gemma3:4b 답변 생성
-   ↓
-답변 및 출처 표시
-   ↓
-메시지와 출처 정보 저장
-```
+**역할:** 다단계 작업 실행 (ReAct 루프).
+
+- `search_documents` 도구로 문서 검색
+- **커스텀 ToolNode (`task_tools_node`):** 문서 검색 결과가 빈 경우 자동으로 `web_search` 폴백 실행
 
 ---
 
-# 11. pgvector 검색 예시
+### 7.8 email_agent
 
-```sql
-SELECT
-    id,
-    document_id,
-    page_number,
-    content,
-    metadata,
-    1 - (embedding <=> :query_embedding) AS similarity
-FROM document_chunks
-ORDER BY embedding <=> :query_embedding
-LIMIT 5;
-```
+**역할:** 이메일 초안 작성.
 
-`<=>`는 cosine distance 검색에 사용할 수 있다.
-
-검색 결과는 다음 정보를 포함한다.
-
-```text
-document_id
-file_name
-page_number
-chunk_index
-content
-similarity
-```
+- 도구 없이 LLM만으로 이메일 구조(제목/본문/서명) 작성
+- 완료 즉시 `orchestrator_agent`로 복귀
 
 ---
 
-# 12. RAG 답변 출처
+### 7.9 image_agent
 
-RAG 답변에는 반드시 출처 정보를 표시한다.
+**역할:** 이미지 시각적 내용 분석 (ReAct 루프).
 
-예시:
-
-```text
-출처
-
-1. SAC_Data_Action_Manual.pdf, 14페이지
-2. Job_Monitor_Architecture.pdf, 8페이지
-```
-
-메시지 metadata에 출처를 저장할 수 있다.
-
-```json
-{
-  "mode": "rag",
-  "sources": [
-    {
-      "document_id": "550e8400-e29b-41d4-a716-446655440000",
-      "file_name": "SAC_Data_Action_Manual.pdf",
-      "page_number": 14,
-      "similarity": 0.87
-    }
-  ]
-}
-```
+- 이미지 처리 도구를 통해 업로드된 이미지 분석
+- 이미지에서 텍스트, 객체, 레이아웃 등 시각 정보 추출
 
 ---
 
-# 13. LangGraph 초기 구조
+## 7. 도구 (Tools)
 
-초기 LangGraph는 복잡하게 만들지 않는다.
+### 7.1 에이전트-도구 호출 관계
 
-```text
-START
-  ↓
-mode 확인
-  ├─ chat → 일반 대화 생성
-  └─ rag  → 문서 검색 → RAG 답변 생성
-  ↓
-END
+```mermaid
+graph LR
+    RA[rag_agent]
+    WEB[web_search_agent]
+    WEA[weather_agent]
+    RE[reasoning_agent]
+    SU[summary_agent]
+    TA[task_agent]
+    IM[image_agent]
+
+    SD[search_documents]
+    WS[web_search]
+    GW[get_weather]
+    IT_TOOLS[image_tools]
+
+    RA -->|ReAct| SD
+    SU -->|ReAct| SD
+    TA -->|ReAct 1순위| SD
+    TA -->|ReAct 폴백| WS
+    RE -->|ReAct 필요시| WS
+    WEB -->|직접 호출| WS
+    WEA -->|직접 호출| GW
+    IM -->|ReAct| IT_TOOLS
 ```
 
-개념적인 흐름:
+### 7.2 도구 목록 및 설명
 
-```python
-builder.add_node("route", route_node)
-builder.add_node("chat", chat_node)
-builder.add_node("retrieve", retrieve_node)
-builder.add_node("generate_rag", generate_rag_node)
+#### `search_documents`
 
-builder.add_edge(START, "route")
+로컬 지식베이스(PostgreSQL + pgvector)에서 하이브리드 검색을 수행한다.
 
-builder.add_conditional_edges(
-    "route",
-    select_mode,
-    {
-        "chat": "chat",
-        "rag": "retrieve",
-    },
-)
+- **검색 방식:** RRF(Reciprocal Rank Fusion) 기반 BM25 키워드 + 벡터 코사인 유사도 결합
+- **한국어 보완:** 한국어 쿼리의 경우 벡터 전용 검색을 추가 실행해 영문 표기 청크도 매칭
+- **필터링:** RRF 점수 하한 + 벡터 거리 절대 상한 + 베스트 매치 기준 적응형 윈도우 3중 필터
+- **저관련성 경고:** 최상위 결과가 기준 거리를 초과하면 `⚠️ 관련성 낮음` 경고를 응답에 포함
+- **메타데이터:** 결과에 `[document_refs:...]` 블록을 포함해 UI가 출처 패널을 표시할 수 있게 함
+- **Fallback:** 벡터 검색 결과가 없을 경우 파일명 기반 검색으로 전환
 
-builder.add_edge("retrieve", "generate_rag")
-builder.add_edge("chat", END)
-builder.add_edge("generate_rag", END)
-```
+#### `web_search`
 
-추후 다음 기능을 추가한다.
+Naver Search API를 호출해 웹 검색 결과를 반환한다.
 
-```text
-질문 자동 분류
-검색어 재작성
-검색 결과 평가
-재검색
-답변 검증
-출처 검증
-대화 요약
-장기 사용자 기억
-```
+- **엔드포인트:** `https://openapi.naver.com/v1/search/webkr.json`
+- **결과 수:** 5개
+- **정렬:** 관련도순
+- **후처리:** HTML 태그 제거 후 `제목 / 설명 / 출처` 형식으로 포맷
+- **인증:** `X-Naver-Client-Id` / `X-Naver-Client-Secret` 헤더
+
+#### `get_weather`
+
+wttr.in API로 실제 날씨 데이터를 조회한다.
+
+- **엔드포인트:** `https://wttr.in/{location}?format=j1&lang=ko`
+- **데이터:** 현재 기온/체감온도/습도/바람/강수량/자외선 + 오늘/내일 예보
+- **강수확률:** 현재 시각 이후 시간대 중 최대값과 해당 시간대 함께 표시
+- **날짜:** `datetime.now()`로 실행 시점의 정확한 날짜 포함
+- **권장사항:** 강수확률/기온/자외선/습도/풍속 임계값 기반으로 결정론적 생성
+- **안정성:** 500 에러 시 1초 후 1회 재시도
 
 ---
 
-# 14. 긴 대화 처리
+## 8. 스트리밍 토큰 시스템
 
-전체 대화 기록은 PostgreSQL에 모두 저장한다.
+`chat_service.py`는 LangGraph의 `stream_mode=["messages","updates"]`를 처리해 특수 접두사 토큰을 UI에 전달한다.
 
-하지만 모든 메시지를 매번 LLM에 전달하지 않는다.
+| 토큰 접두사 | 값 | 의미 | UI 처리 |
+|------------|-----|------|---------|
+| `STATUS_PREFIX` | `\x00STATUS:` | 진행 상황 메시지 | 응답 위에 이탤릭 표시 |
+| `THINK_PREFIX` | `\x00THINK:` | Chain-of-Thought 블록 | 접힌 expander로 표시 |
+| `FOLLOWUP_PREFIX` | `\x00FOLLOWUP:` | 후속 작업 제안 | Yes/No 버튼으로 표시 |
+| `PLAN_PREFIX` | `\x00PLAN:` | 오케스트레이터 계획 | 응답 위 파란 카드로 표시 |
 
-```text
-PostgreSQL에 저장
-  전체 대화 기록
+**`[FOLLOWUP]` 필터링:**
+- 스트리밍 중 `_strip_followup_stream()` 상태 머신이 `[FOLLOWUP]...[/FOLLOWUP]` 블록 제거
+- 토큰 경계 분할 처리 (`[` / `FOLLOWUP` / `]` 로 나뉘어 도착하는 경우)
+- DB 저장 전 regex로 잔여물 최종 제거
 
-LLM에 전달
-  시스템 프롬프트
-  이전 대화 요약
-  최근 메시지
-  검색 문서
-  현재 질문
-```
-
-초기 기준은 다음과 같이 설정한다.
-
-```text
-최근 6~10개 메시지
-+
-이전 대화 요약
-+
-RAG 검색 문서
-+
-현재 질문
-```
-
-이전 대화가 길어지면 요약 데이터를 별도로 저장한다.
-
-예:
-
-```sql
-ALTER TABLE chat_sessions
-ADD COLUMN summary TEXT;
-```
+**날짜 컨텍스트 주입 (`today_context()`):**
+- 각 노드의 SystemMessage 끝에 주입 (마지막 지시 효과 최대화)
+- 형식: `[현재 날짜/시각 — 반드시 준수] 오늘: YYYY년 MM월 DD일 (X요일) 현재 시각: HH:MM`
+- 실행 시점 `datetime.now()` 기반 — 하드코딩 없음
 
 ---
 
-# 15. 개인 비서의 기억 구조
+## 9. 문서 업로드 및 인제스천
 
-시스템은 세 가지 기억 구조를 가진다.
+### 9.1 업로드 플로우
 
-## 15.1 세션 기억
+사용자가 UI에서 파일을 업로드하면 `document_service` → `ingestion_service` 순으로 처리된다.
 
-현재 대화 안에서 기억한다.
+```mermaid
+flowchart TD
+    U["사용자"]
+    UI["Streamlit UI"]
+    DS["document_service"]
+    IS["ingestion_service"]
+    FS["파일 시스템\ndata/uploads/"]
+    DB_DOC["documents 테이블"]
+    DB_CHUNK["chunks 테이블"]
+    LG_STATE["LangGraph 체크포인터"]
 
-```text
-LangGraph Checkpointer
+    U -->|파일 선택 + 범위 선택| UI
+    UI -->|register_document| DS
+    DS -->|SHA256 중복 확인| DB_DOC
+    DS -->|원본 파일 저장| FS
+    DS -->|DB 등록 PENDING| DB_DOC
+    UI -->|ingest_document| IS
+    IS -->|텍스트 추출| IS
+    IS -->|청킹| IS
+    IS -->|임베딩 생성| IS
+    IS -->|청크 + 벡터 저장| DB_CHUNK
+    IS -->|LLM 요약 생성| IS
+    IS -->|요약 청크 저장| DB_CHUNK
+    IS -->|상태 READY| DB_DOC
+    UI -->|SESSION 범위이면 컨텍스트 주입| LG_STATE
 ```
 
-## 15.2 전체 대화 기록
-
-ChatGPT처럼 세션별 대화를 보관한다.
-
-```text
-chat_sessions
-chat_messages
-```
-
-## 15.3 업무 지식과 장기 기억
-
-업로드한 문서와 사용자의 장기 정보를 저장한다.
-
-```text
-documents
-document_chunks
-personal_memories
-```
-
-최종적으로는 다음과 같은 구조가 된다.
-
-```text
-최근 대화 기억
-  LangGraph
-
-전체 대화 기록
-  PostgreSQL
-
-업무 지식
-  PostgreSQL + pgvector
-
-장기 사용자 기억
-  PostgreSQL
-```
+**문서 범위(Scope):**
+- `GLOBAL` — 모든 세션에서 검색 가능
+- `SESSION` — 업로드한 세션에서만 검색 가능. 인제스천 완료 후 LangGraph 체크포인터에 요약을 AI 메시지로 주입해 LLM이 컨텍스트를 즉시 인식하게 한다.
 
 ---
 
-# 16. 문서 삭제 정책
+### 9.2 인제스천 파이프라인
 
-문서를 삭제할 때 다음 항목을 모두 처리해야 한다.
+`ingestion_service.ingest_document()`의 내부 단계. 파일 형식에 따라 텍스트 추출 경로가 분기된다.
 
-```text
-1. document_chunks 삭제
-2. documents 삭제
-3. document_tags 삭제
-4. ingestion_jobs 삭제
-5. 원본 파일 삭제
-6. 추출 텍스트 삭제
+```mermaid
+flowchart TD
+    START["원본 파일 읽기"]
+    MIME{"파일 형식 판별\nMIME + 확장자"}
+
+    PDF["PDF 로더\npdf_loader.py\n페이지별 추출"]
+    DOCX["DOCX 로더\npython-docx\n문서 파싱"]
+    TXT["TXT/MD 로더\n직접 디코딩"]
+    IMG["이미지 OCR\nTesseract\nkor+eng"]
+
+    CHUNK["청크 분할\nchunker.py\n페이지 단위 or 문자 길이"]
+    EMBED["임베딩 생성\nnomic-embed-text\n768차원 배치 처리"]
+    PGVEC["pgvector 저장\nchunks 테이블"]
+    SUMMARY["LLM 요약 생성\nqwen3:8b\n앞 3000자 + 뒤 2000자 샘플"]
+    SUMCHUNK["요약 청크 저장\nchunk_index=-1"]
+    READY["상태 READY"]
+
+    START --> MIME
+    MIME -->|PDF| PDF
+    MIME -->|DOCX| DOCX
+    MIME -->|TXT / MD / 기타| TXT
+    MIME -->|image| IMG
+
+    PDF --> CHUNK
+    DOCX --> CHUNK
+    TXT --> CHUNK
+    IMG --> CHUNK
+
+    CHUNK --> EMBED
+    EMBED --> PGVEC
+    PGVEC --> SUMMARY
+    SUMMARY --> SUMCHUNK
+    SUMCHUNK --> READY
 ```
 
-외래키에 `ON DELETE CASCADE`를 사용하면 PostgreSQL 내부 데이터는 함께 삭제할 수 있다.
+| 단계 | 담당 모델/도구 | 설명 |
+|------|--------------|------|
+| **PDF 추출** | `pdf_loader.py` | 페이지별 텍스트 추출 |
+| **DOCX 추출** | `python-docx` | 단락 구조 파싱 |
+| **TXT/MD 추출** | 직접 디코딩 | UTF-8 디코딩 |
+| **이미지 OCR** | **Tesseract** (`kor+eng`) | PIL로 이미지 열어 OCR 실행. 추출된 텍스트는 이후 동일 파이프라인으로 처리 |
+| **청크 분할** | `chunker.py` | 페이지 단위 또는 `DEFAULT_CHUNK_SIZE=300` / `OVERLAP=80` |
+| **임베딩 생성** | **`nomic-embed-text`** (768차원) | Ollama 배치 API 호출 |
+| **pgvector 저장** | PostgreSQL + pgvector | 텍스트 + 벡터 + 메타데이터 저장 |
+| **LLM 요약 생성** | **`qwen3:8b`** (`temperature=0.1`, `num_predict=700`) | 파일명·문서 유형·키워드·영문 키워드 포함 의미 요약 |
+| **요약 청크 저장** | PostgreSQL | `chunk_index=-1`로 저장. 하이브리드 검색 시 자동 포함 |
 
-파일 시스템의 원본 파일과 추출 파일은 애플리케이션에서 직접 삭제해야 한다.
-
-안전성을 위해 바로 삭제하기보다 비활성화 기능을 먼저 제공할 수 있다.
-
-```text
-ACTIVE
-INACTIVE
-DELETED
-```
-
-`INACTIVE` 문서는 검색 대상에서 제외한다.
+> **이미지 업로드 시 주의:** OCR(Tesseract)은 텍스트가 명확한 이미지에 최적화되어 있다. 텍스트가 없거나 복잡한 이미지는 `image_agent`의 비전 모델(`moondream`)을 통해 대화 중 분석하는 것이 적합하다. 인제스천 시점의 OCR과 대화 시점의 비전 모델은 서로 다른 경로다.
 
 ---
 
-# 17. 권장 프로젝트 구조
+### 9.3 지원 파일 형식
 
-```text
+| 형식 | MIME 타입 | 처리 방법 |
+|------|-----------|----------|
+| PDF | `application/pdf` | 페이지별 텍스트 추출 |
+| DOCX | `application/vnd.openxmlformats...` | python-docx 파싱 |
+| TXT | `text/plain` | 직접 디코딩 |
+| Markdown | `text/markdown` | 마크다운 파싱 |
+| 이미지 (JPG/PNG 등) | `image/*` | OCR 텍스트 추출 |
+| 텍스트 붙여넣기 | — | TXT로 변환 후 동일 파이프라인 |
+
+---
+
+## 10. 데이터베이스 및 상태 관리
+
+### PostgreSQL 스키마 (주요 테이블)
+
+| 테이블 | 역할 |
+|--------|------|
+| `sessions` | 대화 세션 (제목, 모드, 마지막 메시지 시각) |
+| `messages` | 사용자/AI 메시지 (역할, 내용, 메타데이터) |
+| `documents` | 업로드 문서 메타데이터 (파일명, 범위, 상태) |
+| `chunks` | 문서 청크 + 벡터 임베딩 (pgvector) |
+| `checkpoints` | LangGraph PostgresSaver 체크포인트 |
+
+### LangGraph 상태 (`ChatState`)
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `messages` | `list[BaseMessage]` | 대화 히스토리 (add_messages 축적) |
+| `session_id` | `str` | 현재 세션 ID |
+| `orchestrator_plan` | `list[OrchestratorTask]` | 오케스트레이터 작업 계획 |
+| `orchestrator_task_idx` | `int` | 현재 실행 중인 작업 인덱스 |
+| `answer_grade` | `str` | RAG 답변 품질 (`relevant`/`not_relevant`) |
+| `rag_retry_count` | `int` | RAG 재시도 횟수 |
+| `pending_followup` | `str` | 후속 작업 제안 (`질문:::작업`) |
+
+### 문서 범위 (Scope)
+
+| 범위 | 설명 |
+|------|------|
+| `GLOBAL` | 모든 세션에서 검색 가능 |
+| `SESSION` | 업로드한 세션에서만 검색 |
+
+---
+
+## 11. UI 레이어 (Streamlit)
+
+### 주요 화면 구성
+
+- **사이드바:** 세션 목록, 대화 생성/삭제/이름 변경, 시스템 진단
+- **태스크 패널 (사이드바):** task_agent 실행 시 작업 목록 및 진행 상황 실시간 업데이트
+- **메인 채팅 영역:** 대화 히스토리, 스트리밍 응답
+- **실행 계획 카드:** 응답 위에 파란 카드로 `🧩 실행 계획` 표시
+- **CoT 블록:** `🤔 추론 과정` 접힌 expander로 표시
+- **후속 제안 버튼:** `✅ 예, 해줘!` / `❌ 아니요` 버튼
+
+### 파일 업로드 (팝오버)
+
+채팅 입력창 왼쪽 `➕` 버튼으로 접근:
+- 파일 업로드 탭: PDF, TXT, MD, DOCX, 이미지
+- 텍스트 붙여넣기 탭: 직접 입력 후 TXT로 저장
+- GLOBAL / SESSION 범위 선택
+
+### 출처 패널
+
+RAG 응답에 `[document_refs:...]` 메타데이터가 있으면 `📄 출처` expander를 표시하고, 원본 파일 다운로드 버튼을 제공한다.
+
+---
+
+## 12. 프로젝트 구조
+
+```
 newChatBot/
-├── .env
-├── .gitignore
-├── requirements.txt
-├── docker-compose.yml
-├── README.md
-│
 ├── apps/
-│   ├── chat_app.py
-│   └── admin_app.py
-│
+│   ├── chat_app.py          # Streamlit 메인 UI
+│   └── static/              # 아이콘 등 정적 파일
 ├── backend/
-│   ├── __init__.py
-│   ├── config.py
-│   │
 │   ├── chatbot/
-│   │   ├── __init__.py
-│   │   ├── graph.py
-│   │   ├── state.py
-│   │   ├── routing.py
-│   │   ├── prompts.py
+│   │   ├── graph.py         # LangGraph 그래프 정의
+│   │   ├── state.py         # ChatState TypedDict 정의
+│   │   ├── prompts.py       # 모든 시스템 프롬프트
+│   │   ├── tools.py         # search_documents / web_search / get_weather
+│   │   ├── language_utils.py # 텍스트 필터, today_context()
+│   │   ├── routing.py       # 라우팅 유틸리티
 │   │   └── nodes/
-│   │       ├── __init__.py
-│   │       ├── chat.py
-│   │       ├── retrieve.py
-│   │       └── generate.py
-│   │
-│   ├── database/
-│   │   ├── __init__.py
-│   │   ├── connection.py
-│   │   ├── models.py
-│   │   ├── schema.py
-│   │   └── repositories/
-│   │       ├── __init__.py
-│   │       ├── session_repository.py
-│   │       ├── message_repository.py
-│   │       ├── document_repository.py
-│   │       └── chunk_repository.py
-│   │
+│   │       ├── orchestrator_agent.py  # 오케스트레이터
+│   │       ├── rag_agent.py           # RAG (Corrective)
+│   │       ├── grade_answer.py        # 결정론적 품질 평가
+│   │       ├── web_search_agent.py    # 웹 검색
+│   │       ├── weather_agent.py       # 날씨 (LLM 없음)
+│   │       ├── reasoning_agent.py     # 일반 추론
+│   │       ├── summary_agent.py       # 문서 요약
+│   │       ├── task_agent.py          # 다단계 작업
+│   │       ├── email_agent.py         # 이메일 작성
+│   │       └── image_agent.py         # 이미지 분석
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── chat_service.py
-│   │   ├── session_service.py
-│   │   ├── document_service.py
-│   │   └── ingestion_service.py
-│   │
+│   │   ├── chat_service.py     # 스트리밍 처리, DB 저장
+│   │   ├── session_service.py  # 세션 관리
+│   │   ├── document_service.py # 문서 등록
+│   │   ├── ingestion_service.py # 문서 청킹/임베딩
+│   │   └── health_service.py   # 시스템 진단
+│   ├── database/
+│   │   ├── connection.py
+│   │   └── repositories/
+│   │       ├── message_repository.py
+│   │       ├── session_repository.py
+│   │       ├── document_repository.py
+│   │       └── chunk_repository.py    # hybrid_search
 │   ├── rag/
-│   │   ├── __init__.py
-│   │   ├── embeddings.py
-│   │   ├── vector_store.py
-│   │   ├── retriever.py
-│   │   ├── chunker.py
-│   │   └── ingestion.py
-│   │
-│   └── documents/
-│       ├── __init__.py
-│       ├── loaders.py
-│       ├── pdf_loader.py
-│       ├── image_loader.py
-│       └── ocr.py
-│
+│   │   ├── chunker.py         # 문서 청킹
+│   │   ├── embeddings.py      # 임베딩 생성
+│   │   └── retriever.py       # 검색 유틸
+│   ├── documents/
+│   │   ├── loaders.py         # 문서 로더 (PDF/TXT/MD/DOCX)
+│   │   ├── pdf_loader.py      # PDF 전용 로더
+│   │   └── image_loader.py    # 이미지 로더
+│   └── config.py              # 환경 설정
 ├── data/
-│   ├── uploads/
-│   └── extracted/
-│
-└── tests/
-    ├── test_sessions.py
-    ├── test_documents.py
-    ├── test_rag.py
-    └── test_vector_search.py
+│   ├── uploads/               # 업로드 파일 저장
+│   └── extracted/             # 추출 텍스트 캐시
+├── docker/
+│   └── postgres/init/         # DB 초기화 SQL
+├── docker-compose.yml
+└── requirements.txt
 ```
-
----
-
-# 18. Streamlit 실행 구조
-
-## Chat Application
-
-```bash
-streamlit run apps/chat_app.py --server.port 8501
-```
-
-접속 주소:
-
-```text
-http://localhost:8501
-```
-
-## Admin Application
-
-```bash
-streamlit run apps/admin_app.py --server.port 8502
-```
-
-접속 주소:
-
-```text
-http://localhost:8502
-```
-
----
-
-# 19. Chat Application 화면 구성
-
-```text
-┌─────────────────┬────────────────────────────────┐
-│ + 새 대화       │ 세션 제목                      │
-│                 │                                │
-│ 오늘            │ 사용자 메시지                  │
-│ - 세션 A        │ AI 응답                        │
-│ - 세션 B        │                                │
-│                 │ 출처                           │
-│ 이전            │ - 문서명, 페이지               │
-│ - 세션 C        │                                │
-│                 │ [메시지 입력________________]  │
-└─────────────────┴────────────────────────────────┘
-```
-
-왼쪽 사이드바 기능:
-
-```text
-새 대화
-세션 목록
-세션 선택
-세션 제목 수정
-세션 삭제
-대화 모드 선택
-```
-
-메인 화면 기능:
-
-```text
-메시지 히스토리
-스트리밍 응답
-출처 표시
-메시지 입력
-```
-
----
-
-# 20. Admin Application 화면 구성
-
-```text
-┌──────────────────────────────────────────────────┐
-│ Knowledge Base Admin                             │
-├──────────────────────────────────────────────────┤
-│ [문서 업로드] [문서 목록] [청크 관리] [설정]    │
-├──────────────────────────────────────────────────┤
-│ 파일 선택                                        │
-│ 카테고리                                         │
-│ 태그                                             │
-│ 처리 방식                                        │
-│ 청크 크기                                        │
-│ 오버랩                                           │
-│                                                  │
-│ [업로드 및 처리]                                 │
-├──────────────────────────────────────────────────┤
-│ 문서 목록                                        │
-│                                                  │
-│ SAC Manual.pdf    READY       328 chunks          │
-│ Job Monitor.pdf   FAILED      재처리 / 삭제       │
-└──────────────────────────────────────────────────┘
-```
-
-초기 청크 설정 예시:
-
-```text
-chunk size = 300 tokens
-overlap = 80 tokens
-```
-
-문서 특성에 따라 관리 화면에서 변경할 수 있도록 한다.
-
----
-
-# 21. 환경변수 예시
-
-`.env`
-
-```dotenv
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gemma3:4b
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-
-LLM_TEMPERATURE=0.2
-LLM_NUM_CTX=8192
-LLM_NUM_PREDICT=1024
-
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=local_assistant
-POSTGRES_USER=assistant
-POSTGRES_PASSWORD=assistant_password
-
-DATABASE_URL=postgresql+psycopg://assistant:assistant_password@localhost:5432/local_assistant
-
-UPLOAD_DIR=data/uploads
-EXTRACTED_DIR=data/extracted
-
-DEFAULT_CHUNK_SIZE=300
-DEFAULT_CHUNK_OVERLAP=80
-DEFAULT_RETRIEVAL_TOP_K=5
-```
-
----
-
-# 22. 구현 순서
-
-## 1단계: PostgreSQL 기반 대화 시스템
-
-구현 항목:
-
-```text
-PostgreSQL + pgvector 실행
-DB 연결
-chat_sessions 생성
-chat_messages 생성
-세션 생성
-세션 목록 조회
-세션 선택
-세션 삭제
-메시지 저장
-메시지 조회
-LangGraph PostgreSQL Checkpointer 적용
-Chat Application 구현
-```
-
-완료 시 제공되는 기능:
-
-```text
-새 대화
-세션 선택
-이전 대화 재개
-세션 삭제
-대화 기록 유지
-일반 대화
-```
-
----
-
-## 2단계: Admin 문서 관리
-
-구현 항목:
-
-```text
-문서 업로드
-원본 저장
-documents 테이블 저장
-문서 목록 조회
-문서 상세 조회
-문서 삭제
-문서 비활성화
-처리 상태 표시
-```
-
----
-
-## 3단계: 문서 처리와 벡터화
-
-구현 항목:
-
-```text
-PDF 텍스트 추출
-OCR
-청크 생성
-청크 미리보기
-임베딩 생성
-pgvector 저장
-문서 재처리
-재벡터화
-```
-
----
-
-## 4단계: RAG 연결
-
-구현 항목:
-
-```text
-질문 임베딩
-pgvector 검색
-관련 청크 조회
-Gemma에 문서 전달
-근거 기반 답변
-출처 표시
-메시지 metadata 저장
-```
-
----
-
-## 5단계: 고도화
-
-구현 항목:
-
-```text
-질문 자동 분류
-검색어 재작성
-검색 결과 평가
-재검색
-답변 검증
-긴 대화 요약
-장기 사용자 기억
-문서 태그 필터
-카테고리 필터
-하이브리드 검색
-사용자 인증
-관리자 인증
-```
-
----
-
-# 23. 최종 설계 결정
-
-```text
-애플리케이션
-  Chat Application
-  Admin Application
-
-프론트엔드
-  Streamlit
-
-백엔드
-  공통 Python Backend
-
-생성 모델
-  Ollama gemma3:4b
-
-임베딩 모델
-  Ollama 기반 별도 임베딩 모델
-
-LLM 프레임워크
-  LangChain
-
-워크플로 및 상태 관리
-  LangGraph
-
-데이터베이스
-  PostgreSQL
-
-벡터 저장 및 검색
-  pgvector
-
-원본 문서
-  로컬 파일 시스템
-```
-
----
-
-# 24. 가장 먼저 구현할 범위
-
-첫 번째 구현 목표는 다음과 같다.
-
-```text
-PostgreSQL + pgvector 환경 구성
-세션 테이블 생성
-메시지 테이블 생성
-세션 생성/조회/삭제
-메시지 저장/조회
-LangGraph 영구 체크포인트 적용
-Chat Application 구현
-```
-
-이 단계가 완료되면 ChatGPT처럼 세션별 대화를 생성하고, 이전 대화를 다시 열고, 이어서 대화하며, 세션을 삭제할 수 있다.
-
-이후 Admin Application과 RAG 기능을 순차적으로 추가한다.

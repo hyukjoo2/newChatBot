@@ -18,7 +18,7 @@ from langchain_ollama import ChatOllama
 from backend.chatbot.prompts import WEB_SEARCH_AGENT_SYSTEM_PROMPT
 from backend.chatbot.state import ChatState
 from backend.chatbot.tools import web_search
-from backend.chatbot.language_utils import strip_leaked_prompt
+from backend.chatbot.language_utils import strip_leaked_prompt, today_context
 from backend.config import settings
 
 _TOOLS = [web_search]
@@ -120,6 +120,20 @@ def _is_poor_result(result: str) -> bool:
     return any(ind in result for ind in poor_indicators) or len(result.strip()) < 50
 
 
+_FOLLOWUP_RE = re.compile(r"\[FOLLOWUP\](.*?):::(.*?)\[/FOLLOWUP\]", re.DOTALL)
+
+
+def _extract_followup(text: str) -> tuple[str, "str | None"]:
+    """응답에서 [FOLLOWUP]...[/FOLLOWUP] 마커를 추출하고 제거한다."""
+    m = _FOLLOWUP_RE.search(text)
+    if not m:
+        return text, None
+    question = m.group(1).strip()
+    action   = m.group(2).strip()
+    cleaned  = _FOLLOWUP_RE.sub("", text).rstrip()
+    return cleaned, f"{question}:::{action}"
+
+
 @lru_cache(maxsize=1)
 def _get_model() -> ChatOllama:
     return ChatOllama(
@@ -160,6 +174,7 @@ def web_search_agent_node(state: ChatState) -> dict:
     system_with_results = (
         WEB_SEARCH_AGENT_SYSTEM_PROMPT
         + f"\n\n[검색 결과]\n{combined}"
+        + today_context()
     )
     messages = [SystemMessage(content=system_with_results), HumanMessage(content=user_query)]
     response = _get_model().invoke(messages)
@@ -167,4 +182,19 @@ def web_search_agent_node(state: ChatState) -> dict:
     if response.content:
         response.content = _strip_intro(strip_leaked_prompt(response.content))
 
-    return {"messages": [response]}
+    result: dict = {"messages": [response]}
+
+    # FOLLOWUP 마커 파싱 + junk 필터
+    _FOLLOWUP_JUNK = [
+        "사용자에게 보여줄", "실제_질문", "실제_작업", "질문:::작업", "내용:::내용",
+        "검색/실행", "placeholder",
+    ]
+    if response.content and not getattr(response, "tool_calls", None):
+        cleaned, followup = _extract_followup(response.content)
+        if followup:
+            response.content = cleaned
+            q = followup.split(":::", 1)[0].strip()
+            if not any(j in q for j in _FOLLOWUP_JUNK) and 5 < len(q) < 80:
+                result["pending_followup"] = followup
+
+    return result

@@ -15,6 +15,15 @@ class TaskItem(TypedDict):
     result: Optional[str]
 
 
+class OrchestratorTask(TypedDict):
+    """orchestrator_agent가 관리하는 에이전트 실행 단위."""
+    id: int
+    agent: str           # 실행할 에이전트 이름
+    description: str     # 작업 설명 / 검색 쿼리
+    status: str          # "pending" | "done" | "failed"
+    result: Optional[str]
+
+
 class ChatState(TypedDict):
     """LangGraph 상태 정의."""
 
@@ -45,3 +54,14 @@ class ChatState(TypedDict):
 
     # RAG 재시도 횟수 (최대 2회)
     rag_retry_count: Optional[int]
+
+    # reasoning_agent가 제안하는 후속 작업 (UI Yes/No 버튼에 사용)
+    # 형식: "사용자에게 보여줄 질문:::실제 실행할 작업 설명"
+    pending_followup: Optional[str]
+
+    # ── Orchestrator ────────────────────────────────────────────────────────
+    # orchestrator_agent가 수립·관리하는 실행 계획
+    orchestrator_plan: Optional[list[OrchestratorTask]]
+
+    # 현재 실행 중인 작업 인덱스
+    orchestrator_task_idx: Optional[int]
