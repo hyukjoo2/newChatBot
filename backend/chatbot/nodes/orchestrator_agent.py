@@ -20,7 +20,7 @@ from functools import lru_cache
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-from backend.chatbot.prompts import ORCHESTRATOR_PLAN_PROMPT
+from backend.chatbot.prompts import ORCHESTRATOR_PLAN_PROMPT, ORCHESTRATOR_DECOMPOSE_PROMPT
 from backend.chatbot.state import ChatState, OrchestratorTask
 from backend.chatbot.language_utils import today_context
 from backend.config import settings
@@ -273,7 +273,7 @@ def _get_model() -> ChatOllama:
         base_url=settings.ollama_base_url,
         temperature=0.0,
         num_ctx=settings.num_ctx,
-        num_predict=256,
+        num_predict=512,
     )
 
 
@@ -321,17 +321,55 @@ def orchestrator_agent_node(state: ChatState) -> dict:
     plan: list[OrchestratorTask] | None = state.get("orchestrator_plan")
     idx:  int                            = state.get("orchestrator_task_idx") or 0
 
-    # ── Phase 1: 계획 수립 ───────────────────────────────────────────────────
+    # ── Phase 1: 계획 수립 (2단계) ──────────────────────────────────────────
     if plan is None:
-        user_query  = _last_user_message(state)
-        session_id  = state.get("session_id")
-        doc_ctx     = _doc_context(session_id)
+        user_query = _last_user_message(state)
+        session_id = state.get("session_id")
+        doc_ctx    = _doc_context(session_id)
+
+        # ── 1a: 질문 의도 분해 ────────────────────────────────────────────
+        # 사용자 질문에 몇 가지 독립적인 측면이 있는지 먼저 파악한다.
+        # reasoning_agent의 역할: 복잡한 질문을 분해해 계획 수립의 품질을 높인다.
+        aspects_text = user_query   # 기본값: 분해 실패 시 원문 그대로
+        try:
+            decompose_model = ChatOllama(
+                model=settings.ollama_model,
+                base_url=settings.ollama_base_url,
+                temperature=0.0,
+                num_ctx=settings.num_ctx,
+                num_predict=400,
+            )
+            d_response = decompose_model.invoke([
+                SystemMessage(content=ORCHESTRATOR_DECOMPOSE_PROMPT),
+                HumanMessage(content=user_query),
+            ])
+            raw = re.sub(r"<think>.*?</think>", "", d_response.content or "", flags=re.DOTALL).strip()
+            # [ASPECTS]...[/ASPECTS] 블록 추출
+            aspects_match = re.search(r"\[ASPECTS\](.*?)\[/ASPECTS\]", raw, re.DOTALL)
+            if aspects_match:
+                aspects_text = aspects_match.group(1).strip()
+                _log.info("Orchestrator decompose → %d aspects", aspects_text.count("\n") + 1)
+            else:
+                _log.info("Orchestrator decompose: no [ASPECTS] block, using raw query")
+        except Exception as e:
+            _log.warning("Orchestrator decompose failed: %s", e)
+
+        # ── 1b: 분해된 측면을 기반으로 [PLAN] 생성 ──────────────────────
+        # 측면들을 명시적으로 지시문 형태로 전달해 LLM이 각 측면=별도 작업으로 인식하게 함
+        if aspects_text != user_query:
+            context_for_plan = (
+                f"[파악된 독립적 측면들 — 각 측면을 별도 작업으로 처리하라]"
+                f"\n{aspects_text}"
+                f"\n\n[사용자 원문 질문]\n{user_query}"
+            )
+        else:
+            context_for_plan = user_query
         system_text = ORCHESTRATOR_PLAN_PROMPT + doc_ctx + today_context()
 
         plan = []
         try:
             response = _get_model().invoke(
-                [SystemMessage(content=system_text), HumanMessage(content=user_query)]
+                [SystemMessage(content=system_text), HumanMessage(content=context_for_plan)]
             )
             plan = _parse_plan(response.content)
         except Exception as e:
@@ -363,13 +401,15 @@ def orchestrator_agent_node(state: ChatState) -> dict:
         plan[idx]["result"] = (result or "")[:300]
 
         if task_status == "done":
-            # ── 성공한 작업에만 LLM follow-up 판단 ──────────────────────────
-            # 실패한 경우는 자동 폴백(web_search)이 이미 처리하므로 Y/N 버튼 불필요
-            user_q   = _last_user_message(state)
-            followup = _llm_derive_followup(plan[idx]["agent"], user_q, result or "")
-            if followup:
-                extra_state["pending_followup"] = followup
-                _log.info("Orchestrator: LLM follow-up → %r", followup[:60])
+            # ── 마지막 작업 완료 시에만 follow-up 판단 ──────────────────────
+            # 중간 작업마다 LLM 호출하지 않도록 모든 pending 작업이 끝났을 때만 실행
+            remaining_pending = [t for t in plan[idx+1:] if t.get("status") == "pending"]
+            if not remaining_pending:
+                user_q   = _last_user_message(state)
+                followup = _llm_derive_followup(plan[idx]["agent"], user_q, result or "")
+                if followup:
+                    extra_state["pending_followup"] = followup
+                    _log.info("Orchestrator: LLM follow-up → %r", followup[:60])
 
         else:
             # ── 실패한 작업: 자동 폴백 삽입 + 상태 알림 (Y/N 버튼 없음) ───────

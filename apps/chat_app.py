@@ -552,21 +552,27 @@ if user_input:
                     # ── 작업 계획 토큰 ───────────────────────────────────────
                     if token.startswith(_PLAN_PREFIX):
                         raw = token[len(_PLAN_PREFIX):]
-                        lines_md = []
+                        lines_html = []
                         for line in raw.strip().splitlines():
                             parts = line.split("|", 2)
                             if len(parts) == 3:
                                 tid, agent, desc = parts
                                 label = _AGENT_DISPLAY.get(agent.strip(), f"💡 {agent}")
-                                lines_md.append(f"  **{tid}.** {label} — {desc.strip()}")
+                                lines_html.append(
+                                    f"<div style='margin:2px 0'>"
+                                    f"<b>{tid}.</b> {label} &mdash; {desc.strip()}"
+                                    f"</div>"
+                                )
                         # 채팅 응답 내 계획 카드
-                        if lines_md:
-                            plan_md = "🧩 **실행 계획**\n" + "\n".join(lines_md)
+                        if lines_html:
                             with plan_box.container():
                                 st.markdown(
                                     f"<div style='background:#f0f4ff;border-left:3px solid #6c8ebf;"
                                     f"padding:8px 12px;border-radius:4px;font-size:0.87em;"
-                                    f"margin-bottom:4px;'>{plan_md}</div>",
+                                    f"margin-bottom:4px;'>"
+                                    f"<div style='font-weight:600;margin-bottom:4px;'>🧩 실행 계획</div>"
+                                    f"{''.join(lines_html)}"
+                                    f"</div>",
                                     unsafe_allow_html=True,
                                 )
                         continue
@@ -634,9 +640,11 @@ if user_input:
                             _log.warning("task panel update failed: %s", _panel_err)
 
                 _raw = "".join(collected)
-                # [FOLLOWUP]...[/FOLLOWUP] 완전한 블록 제거 후 잔여 마커도 제거
+                # [FOLLOWUP] 잔여물 제거
                 _raw = _re.sub(r"\[FOLLOWUP\].*?\[/FOLLOWUP\]", "", _raw, flags=_re.DOTALL)
-                _raw = _re.sub(r"\[/?FOLLOWUP[^\]]*\]?", "", _raw).strip()
+                _raw = _re.sub(r"\[/?FOLLOWUP[^\]]*\]?", "", _raw)
+                # 가짜 출처 번호 제거: (출처 1), (출처 1, 5) 등
+                _raw = _re.sub(r"\s*\(출처\s*[\d,\s]+\)", "", _raw).strip()
                 final_text = fix_markdown_spacing(strip_leaked_prompt(_raw))
                 placeholder.markdown(final_text)
                 status_ph.empty()

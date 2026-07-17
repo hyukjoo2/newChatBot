@@ -20,6 +20,8 @@ _REFS_RE = re.compile(r"\[document_refs:(.+?)\]$", re.DOTALL)
 # 최종 응답에서 [FOLLOWUP] 잔여물 제거 (스트리밍 필터가 누락한 경우 대비)
 _FOLLOWUP_CLEANUP_RE = re.compile(r"\[FOLLOWUP\].*?\[/FOLLOWUP\]", re.DOTALL)
 _FOLLOWUP_PARTIAL_RE = re.compile(r"\[/?FOLLOWUP[^\]]*\]?")
+# reasoning_agent가 웹 검색 번호를 "(출처 N)" 형식으로 인용하는 경우 제거
+_FAKE_CITE_RE = re.compile(r"\s*\(출처\s*[\d,\s]+\)", re.IGNORECASE)
 
 
 def _strip_followup_stream(text: str, in_block: bool, buf: str) -> tuple[str, bool, str]:
@@ -384,7 +386,9 @@ def stream_chat(
     response_text = strip_leaked_prompt("".join(full_response))
     # 스트리밍 필터가 놓친 [FOLLOWUP] 잔여물 최종 제거
     response_text = _FOLLOWUP_CLEANUP_RE.sub("", response_text)
-    response_text = _FOLLOWUP_PARTIAL_RE.sub("", response_text).strip()
+    response_text = _FOLLOWUP_PARTIAL_RE.sub("", response_text)
+    # 가짜 출처 번호 제거
+    response_text = _FAKE_CITE_RE.sub("", response_text).strip()
     msg_meta = {"mode": mode.lower()}
     if sources:
         msg_meta["sources"] = sources

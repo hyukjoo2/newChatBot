@@ -49,6 +49,13 @@ _FOLLOWUP_RE = _re.compile(
     _re.DOTALL,
 )
 
+# LLM이 웹 검색 결과 번호를 "(출처 N)" 형식으로 인용하는 패턴 제거
+# 실제 출처 링크가 UI에 표시되지 않으므로 가짜 인용 번호는 제거한다
+_FAKE_CITE_RE = _re.compile(
+    r"\s*\(출처\s*[\d,\s]+\)",
+    _re.IGNORECASE,
+)
+
 
 def _extract_followup(text: str) -> tuple[str, str | None]:
     """
@@ -65,7 +72,7 @@ def _extract_followup(text: str) -> tuple[str, str | None]:
 
 
 def reasoning_agent_node(state: ChatState) -> dict:
-    """추론 에이전트: 답변 후 후속 작업을 자율 판단하고, 필요시 [FOLLOWUP] 마커로 제안한다."""
+    """추론 에이전트: 이전 검색 결과를 포함한 컨텍스트를 바탕으로 답변 생성."""
     model = _get_model()
     messages = [SystemMessage(content=AGENT_SYSTEM_PROMPT + today_context()), *state["messages"]]
     response = model.invoke(messages)
@@ -73,13 +80,11 @@ def reasoning_agent_node(state: ChatState) -> dict:
     result: dict = {}
 
     if response.content and not getattr(response, "tool_calls", None):
-        cleaned, followup = _extract_followup(response.content)
+        # [FOLLOWUP] 마커 제거 (안전망)
+        cleaned, _ = _extract_followup(response.content)
+        # (출처 N), (출처 1, 5) 등 가짜 인용 번호 제거
+        cleaned = _FAKE_CITE_RE.sub("", cleaned)
         response.content = _strip_intro(strip_leaked_prompt(cleaned))
-        if followup:
-            q = followup.split(":::", 1)[0].strip()
-            _junk = ["사용자에게 보여줄", "실제_질문", "실제_작업", "질문:::작업", "내용:::내용"]
-            if not any(j in q for j in _junk) and 5 < len(q) < 80:
-                result["pending_followup"] = followup
 
     result["messages"] = [response]
     return result

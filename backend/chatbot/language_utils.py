@@ -128,12 +128,16 @@ def split_think_content(
 # 표준 마크다운 파서가 볼드로 인식하지 못해 ** 가 그대로 노출된다.
 _BOLD_SPACE_RE = re.compile(r'\*\*[ \t]+([^*\n]+?)[ \t]+\*\*')
 _ITALIC_SPACE_RE = re.compile(r'(?<!\*)\*[ \t]+([^*\n]+?)[ \t]+\*(?!\*)')
+# 출처: ... 뒤에 바로 텍스트가 붙는 경우 (줄바꿈 없음) → 빈 줄 삽입
+_SOURCE_NO_BREAK_RE = re.compile(r'(출처:[^\n]+)(\S)', re.MULTILINE)
 
 
 def fix_markdown_spacing(text: str) -> str:
-    """** text ** → **text**, * text * → *text* 로 정규화한다."""
+    """** text ** → **text**, * text * → *text* 로 정규화하고, 출처 뒤 줄바꿈을 보정한다."""
     text = _BOLD_SPACE_RE.sub(r'**\1**', text)
     text = _ITALIC_SPACE_RE.sub(r'*\1*', text)
+    # "출처: [1](...)[2](...)다음문장" → "출처: ...\n\n다음문장"
+    text = _SOURCE_NO_BREAK_RE.sub(r'\1\n\n\2', text)
     return text
 
 
