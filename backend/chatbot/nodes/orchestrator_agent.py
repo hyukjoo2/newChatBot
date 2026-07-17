@@ -20,7 +20,7 @@ from functools import lru_cache
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-from backend.chatbot.prompts import ORCHESTRATOR_PLAN_PROMPT, ORCHESTRATOR_DECOMPOSE_PROMPT
+from backend.chatbot.prompts import ORCHESTRATOR_PLAN_PROMPT
 from backend.chatbot.state import ChatState, OrchestratorTask
 from backend.chatbot.language_utils import today_context
 from backend.config import settings
@@ -268,12 +268,13 @@ def _fallback_agent(query: str) -> str:
 
 # ── LLM 모델 ────────────────────────────────────────────────────────────────
 def _get_model() -> ChatOllama:
+    """[PLAN] 생성 전용 소형 모델 — 짧은 칼마다 빠름."""
     return ChatOllama(
         model=settings.ollama_model,
         base_url=settings.ollama_base_url,
         temperature=0.0,
-        num_ctx=settings.num_ctx,
-        num_predict=512,
+        num_ctx=2048,   # 개획 생성에 8192 스코프 불필요
+        num_predict=350,
     )
 
 
@@ -309,91 +310,63 @@ def _doc_context(session_id: str | None) -> str:
         return ""
 
 
-# ── 메인 노드 ────────────────────────────────────────────────────────────────
+# ── 노드 1: Planner ─────────────────────────────────────────────────────────
 
-def orchestrator_agent_node(state: ChatState) -> dict:
+def orchestrator_planner_node(state: ChatState) -> dict:
     """
-    Phase 1 (plan == None):
-        LLM으로 의도 파악 + [PLAN] 수립 → 첫 작업 에이전트로 라우팅 준비
-    Phase 2+ (plan exists):
-        마지막 결과 결정론적 평가 → 계획 업데이트 → 다음 에이전트 준비
+    Phase 1 전용: 질문 분석 + 실행 계획 수립 (LLM 호출 1회).
+    한 번만 실행되며 절대 루프백되지 않는다.
     """
+    user_query = _last_user_message(state)
+    session_id = state.get("session_id")
+    doc_ctx    = _doc_context(session_id)
+    system_text = ORCHESTRATOR_PLAN_PROMPT + doc_ctx + today_context()
+
+    plan: list[OrchestratorTask] = []
+    try:
+        response = _get_model().invoke(
+            [SystemMessage(content=system_text), HumanMessage(content=user_query)]
+        )
+        plan = _parse_plan(response.content)
+    except Exception as e:
+        _log.warning("Planner plan creation failed: %s", e)
+
+    if not plan:
+        _log.info("Planner: using keyword fallback for %r", user_query)
+        plan = [{
+            "id": 1,
+            "agent": _fallback_agent(user_query),
+            "description": user_query,
+            "status": "pending",
+            "result": None,
+        }]
+
+    _log.info("Planner plan: %s", [(t["id"], t["agent"]) for t in plan])
+    return {"orchestrator_plan": plan, "orchestrator_task_idx": 0}
+
+
+def route_from_planner(state: ChatState) -> str:
+    """planner 완료 → 첫 번째 작업 에이전트로 라우팅."""
+    from langgraph.graph import END
     plan: list[OrchestratorTask] | None = state.get("orchestrator_plan")
-    idx:  int                            = state.get("orchestrator_task_idx") or 0
+    if not plan:
+        return END
+    agent = plan[0]["agent"]
+    _log.info("Planner routing → %s (%s)", agent, plan[0]["description"][:50])
+    return agent
 
-    # ── Phase 1: 계획 수립 (2단계) ──────────────────────────────────────────
-    if plan is None:
-        user_query = _last_user_message(state)
-        session_id = state.get("session_id")
-        doc_ctx    = _doc_context(session_id)
 
-        # ── 1a: 질문 의도 분해 ────────────────────────────────────────────
-        # 사용자 질문에 몇 가지 독립적인 측면이 있는지 먼저 파악한다.
-        # reasoning_agent의 역할: 복잡한 질문을 분해해 계획 수립의 품질을 높인다.
-        aspects_text = user_query   # 기본값: 분해 실패 시 원문 그대로
-        try:
-            decompose_model = ChatOllama(
-                model=settings.ollama_model,
-                base_url=settings.ollama_base_url,
-                temperature=0.0,
-                num_ctx=settings.num_ctx,
-                num_predict=400,
-            )
-            d_response = decompose_model.invoke([
-                SystemMessage(content=ORCHESTRATOR_DECOMPOSE_PROMPT),
-                HumanMessage(content=user_query),
-            ])
-            raw = re.sub(r"<think>.*?</think>", "", d_response.content or "", flags=re.DOTALL).strip()
-            # [ASPECTS]...[/ASPECTS] 블록 추출
-            aspects_match = re.search(r"\[ASPECTS\](.*?)\[/ASPECTS\]", raw, re.DOTALL)
-            if aspects_match:
-                aspects_text = aspects_match.group(1).strip()
-                _log.info("Orchestrator decompose → %d aspects", aspects_text.count("\n") + 1)
-            else:
-                _log.info("Orchestrator decompose: no [ASPECTS] block, using raw query")
-        except Exception as e:
-            _log.warning("Orchestrator decompose failed: %s", e)
+# ── 노드 2: Evaluator ────────────────────────────────────────────────────────
 
-        # ── 1b: 분해된 측면을 기반으로 [PLAN] 생성 ──────────────────────
-        # 측면들을 명시적으로 지시문 형태로 전달해 LLM이 각 측면=별도 작업으로 인식하게 함
-        if aspects_text != user_query:
-            context_for_plan = (
-                f"[파악된 독립적 측면들 — 각 측면을 별도 작업으로 처리하라]"
-                f"\n{aspects_text}"
-                f"\n\n[사용자 원문 질문]\n{user_query}"
-            )
-        else:
-            context_for_plan = user_query
-        system_text = ORCHESTRATOR_PLAN_PROMPT + doc_ctx + today_context()
-
-        plan = []
-        try:
-            response = _get_model().invoke(
-                [SystemMessage(content=system_text), HumanMessage(content=context_for_plan)]
-            )
-            plan = _parse_plan(response.content)
-        except Exception as e:
-            _log.warning("Orchestrator plan creation failed: %s", e)
-
-        if not plan:
-            # 폴백: 키워드 기반 단일 작업
-            _log.info("Orchestrator: using keyword fallback for %r", user_query)
-            plan = [{
-                "id": 1,
-                "agent": _fallback_agent(user_query),
-                "description": user_query,
-                "status": "pending",
-                "result": None,
-            }]
-
-        _log.info("Orchestrator plan: %s", [(t["id"], t["agent"]) for t in plan])
-        return {"orchestrator_plan": plan, "orchestrator_task_idx": 0}
-
-    # ── Phase 2+: 결과 평가 + 계획 업데이트 ─────────────────────────────────
-    plan = [dict(t) for t in plan]   # 불변 → 가변 복사
+def orchestrator_evaluator_node(state: ChatState) -> dict:
+    """
+    Phase 2+ 전용: 작업 결과 평가 + 계획 업데이트.
+    각 worker 완료 후마다 실행된다.
+    """
+    plan = [dict(t) for t in (state.get("orchestrator_plan") or [])]
+    idx:  int = state.get("orchestrator_task_idx") or 0
     extra_state: dict = {}
 
-    # 완료된 작업 상태 업데이트
     if idx < len(plan):
         result = _last_ai_result(state)
         task_status = "done" if not _is_failed(result) else "failed"
@@ -401,19 +374,14 @@ def orchestrator_agent_node(state: ChatState) -> dict:
         plan[idx]["result"] = (result or "")[:300]
 
         if task_status == "done":
-            # ── 마지막 작업 완료 시에만 follow-up 판단 ──────────────────────
-            # 중간 작업마다 LLM 호출하지 않도록 모든 pending 작업이 끝났을 때만 실행
-            remaining_pending = [t for t in plan[idx+1:] if t.get("status") == "pending"]
+            remaining_pending = [t for t in plan[idx + 1:] if t.get("status") == "pending"]
             if not remaining_pending:
                 user_q   = _last_user_message(state)
                 followup = _llm_derive_followup(plan[idx]["agent"], user_q, result or "")
                 if followup:
                     extra_state["pending_followup"] = followup
-                    _log.info("Orchestrator: LLM follow-up → %r", followup[:60])
-
+                    _log.info("Evaluator: LLM follow-up → %r", followup[:60])
         else:
-            # ── 실패한 작업: 자동 폴백 삽입 + 상태 알림 (Y/N 버튼 없음) ───────
-            # RAG 실패 → "관련 정보가 없어서 웹 검색합니다" 로 자동 진행
             if (
                 plan[idx]["agent"] == "rag_agent"
                 and not any(t["agent"] == "web_search_agent" and t["status"] == "pending" for t in plan)
@@ -426,35 +394,45 @@ def orchestrator_agent_node(state: ChatState) -> dict:
                     "result": None,
                 }
                 plan.insert(idx + 1, fallback_task)
-                _log.info("Orchestrator: RAG 실패 → web_search_agent 자동 폴백 삽입")
+                _log.info("Evaluator: RAG 실패 → web_search_agent 자동 폴백 삽입")
 
     next_idx = idx + 1
-    _log.info("Orchestrator: task %d done → advancing to %d/%d", idx, next_idx, len(plan))
+    _log.info("Evaluator: task %d done → advancing to %d/%d", idx, next_idx, len(plan))
     return {"orchestrator_plan": plan, "orchestrator_task_idx": next_idx, **extra_state}
 
 
-# ── 라우팅 함수 (graph.py에서 사용) ─────────────────────────────────────────
-
-def route_from_orchestrator(state: ChatState) -> str:
-    """
-    orchestrator_agent 완료 후 다음 노드를 결정한다.
-    - 계획의 현재 작업 에이전트로 라우팅
-    - 모든 작업 완료 → END
-    """
+def route_from_evaluator(state: ChatState) -> str:
+    """evaluator 완료 → 다음 pending 작업 에이전트로 라우팅 (없으면 END)."""
     from langgraph.graph import END
-
     plan: list[OrchestratorTask] | None = state.get("orchestrator_plan")
-    idx:  int                            = state.get("orchestrator_task_idx") or 0
+    idx: int = state.get("orchestrator_task_idx") or 0
 
     if not plan:
         return END
 
-    # pending 상태인 다음 작업 찾기
     for task in plan[idx:]:
         if task.get("status") == "pending":
             agent = task["agent"]
-            _log.info("Orchestrator routing → %s (%s)", agent, task["description"][:50])
+            _log.info("Evaluator routing → %s (%s)", agent, task["description"][:50])
             return agent
 
-    _log.info("Orchestrator: all tasks done → END")
+    _log.info("Evaluator: all tasks done → END")
     return END
+
+
+# ── 하위 호환 별칭 (삭제 예정) ───────────────────────────────────────────────
+
+def orchestrator_agent_node(state: ChatState) -> dict:
+    """Deprecated: orchestrator_planner_node / orchestrator_evaluator_node 로 대체됨."""
+    plan = state.get("orchestrator_plan")
+    if plan is None:
+        return orchestrator_planner_node(state)
+    return orchestrator_evaluator_node(state)
+
+
+def route_from_orchestrator(state: ChatState) -> str:
+    """Deprecated: route_from_planner / route_from_evaluator 로 대체됨."""
+    plan = state.get("orchestrator_plan")
+    if plan is None or state.get("orchestrator_task_idx", 0) == 0:
+        return route_from_planner(state)
+    return route_from_evaluator(state)

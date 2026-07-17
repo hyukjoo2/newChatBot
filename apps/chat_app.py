@@ -30,6 +30,31 @@ import re as _re
 import logging as _logging
 _log = _logging.getLogger(__name__)
 
+# ── 상태 메시지 shimmer 렌더러 ───────────────────────────────────────────────
+
+_SHIMMER_CSS_INJECTED = False  # 미사용 — _shimmer_html은 매번 style 포함
+
+def _shimmer_html(text: str) -> str:
+    """빛이 왼→오로 흐르는 shimmer 효과 HTML. 매번 <style> 포함."""
+    return (
+        "<style>"
+        "@keyframes _selma_sh{"
+        "0%{background-position:200% center}"
+        "100%{background-position:-200% center}"
+        "}"
+        "</style>"
+        "<span style='"
+        "background:linear-gradient(90deg,#94a3b8 30%,#e2e8f0 50%,#94a3b8 70%);"
+        "background-size:400% 100%;"
+        "-webkit-background-clip:text;"
+        "-webkit-text-fill-color:transparent;"
+        "background-clip:text;"
+        "color:transparent;"
+        "animation:_selma_sh 1.6s ease-in-out infinite;"
+        "font-style:italic;font-size:0.92em;"
+        f"'>{text}</span>"
+    )
+
 
 # ── 태스크 패널 헬퍼 ─────────────────────────────────────────────────────────
 
@@ -532,7 +557,7 @@ if user_input:
 
             # 초기 대기 상태 표시
             placeholder.markdown(
-                "<span style='color:#888;font-style:italic;'>⏳ 생각 중...</span>",
+                _shimmer_html("🧩 planner 분석 중..."),
                 unsafe_allow_html=True,
             )
             collected = []
@@ -612,7 +637,7 @@ if user_input:
                         status_text = token[len(_STATUS_PREFIX):]
                         if not _has_content:
                             placeholder.markdown(
-                                f"<span style='color:#888;font-style:italic;'>{status_text}</span>",
+                                _shimmer_html(status_text),
                                 unsafe_allow_html=True,
                             )
                         else:
@@ -643,8 +668,11 @@ if user_input:
                 # [FOLLOWUP] 잔여물 제거
                 _raw = _re.sub(r"\[FOLLOWUP\].*?\[/FOLLOWUP\]", "", _raw, flags=_re.DOTALL)
                 _raw = _re.sub(r"\[/?FOLLOWUP[^\]]*\]?", "", _raw)
-                # 가짜 출처 번호 제거: (출처 1), (출처 1, 5) 등
-                _raw = _re.sub(r"\s*\(출처\s*[\d,\s]+\)", "", _raw).strip()
+                # 가짜 출처 번호 제거: (출처 1), (출처 1, 5), ([1]), ([1], [3]) 등
+                _raw = _re.sub(
+                    r"\s*(?:\(출처\s*[\d,\s]+\)|\(\[\d+\](?:,\s*\[\d+\])*\))",
+                    "", _raw, flags=_re.IGNORECASE
+                ).strip()
                 final_text = fix_markdown_spacing(strip_leaked_prompt(_raw))
                 placeholder.markdown(final_text)
                 status_ph.empty()

@@ -21,7 +21,13 @@ _REFS_RE = re.compile(r"\[document_refs:(.+?)\]$", re.DOTALL)
 _FOLLOWUP_CLEANUP_RE = re.compile(r"\[FOLLOWUP\].*?\[/FOLLOWUP\]", re.DOTALL)
 _FOLLOWUP_PARTIAL_RE = re.compile(r"\[/?FOLLOWUP[^\]]*\]?")
 # reasoning_agent가 웹 검색 번호를 "(출처 N)" 형식으로 인용하는 경우 제거
-_FAKE_CITE_RE = re.compile(r"\s*\(출처\s*[\d,\s]+\)", re.IGNORECASE)
+_FAKE_CITE_RE = re.compile(
+    r"\s*(?:"
+    r"\(출처\s*[\d,\s]+\)"           # (출처 1, 5)
+    r"|\(\[\d+\](?:,\s*\[\d+\])*\)"  # ([1], [3])
+    r")",
+    re.IGNORECASE
+)
 
 
 def _strip_followup_stream(text: str, in_block: bool, buf: str) -> tuple[str, bool, str]:
@@ -214,9 +220,13 @@ def stream_chat(
     _last_msg_id: str | None = None
     _node_visits: dict[str, int] = {}
     _in_think: bool = False
-    _in_followup_block: bool = False   # [FOLLOWUP]...[/FOLLOWUP] 블록 스트리밍 중 숨김
-    _followup_buf: str = ""             # 불완전한 [FOLLOWUP] 토큰 버퍼
-    _followup_emitted: bool = False     # FOLLOWUP 토큰 중복 방출 방지
+    _in_followup_block: bool = False
+    _followup_buf: str = ""
+    _followup_emitted: bool = False
+    _streaming_node: str = ""   # 현재 스트리밍 중인 노드 (STATUS 중복 방지)
+
+    # 처음 하나: planner 분석 시작을 알림
+    yield f"{STATUS_PREFIX}🧩 planner 분석 중..."
 
     for event_type, event_data in graph.stream(
         {
@@ -241,38 +251,61 @@ def stream_chat(
             node_name = next(iter(event_data), "")
             _node_visits[node_name] = _node_visits.get(node_name, 0) + 1
 
-            if node_name == "orchestrator_agent":
-                o_delta = event_data.get("orchestrator_agent") or {}
-                plan = o_delta.get("orchestrator_plan") or []
-                idx  = o_delta.get("orchestrator_task_idx") or 0
-
-                if plan and idx == 0:
-                    # ── Phase 1 완료: 작업 계획 방출 ─────────────────────────
-                    # 형식: "1|agent|설명\n2|agent|설명"
-                    lines = []
-                    for t in plan:
-                        lines.append(f"{t['id']}|{t['agent']}|{t['description']}")
+            if node_name == "orchestrator_planner":
+                p_delta = event_data.get("orchestrator_planner") or {}
+                plan = p_delta.get("orchestrator_plan") or []
+                if plan:
+                    lines = [f"{t['id']}|{t['agent']}|{t['description']}" for t in plan]
                     yield f"{PLAN_PREFIX}" + "\n".join(lines)
+                    # 첫 번째 작업 에이전트 STATUS 즉시 표시
+                    first = plan[0]
+                    label = _AGENT_DISPLAY.get(first["agent"], "💡 작업")
+                    desc  = first.get("description", "")[:40]
+                    yield f"{STATUS_PREFIX}▶ [1/{len(plan)}] {label}: {desc}..."
 
-                elif plan and idx < len(plan):
-                    # ── Phase 2+ : 다음 작업 진행 상태 ──────────────────────
-                    task  = plan[idx]
-                    label = _AGENT_DISPLAY.get(task["agent"], "💡 작업")
-                    desc  = task.get("description", "")[:40]
-                    # RAG 실패 → 자동 web_search 폴백: 사용자에게 이유 알림 (Y/N 버튼 없음)
+            elif node_name == "orchestrator_evaluator":
+                e_delta  = event_data.get("orchestrator_evaluator") or {}
+                plan     = e_delta.get("orchestrator_plan") or []
+                next_idx = e_delta.get("orchestrator_task_idx") or 0
+
+                yield f"{STATUS_PREFIX}🔄 evaluator 결과 검토 중..."
+
+                # 다음 작업이 있으면 STATUS 방출
+                next_task = next(
+                    (t for t in plan[next_idx:] if t.get("status") == "pending"), None
+                )
+                if next_task:
+                    label = _AGENT_DISPLAY.get(next_task["agent"], "💡 작업")
+                    desc  = next_task.get("description", "")[:40]
                     prev_failed_rag = (
-                        idx > 0
-                        and task["agent"] == "web_search_agent"
-                        and plan[idx - 1].get("status") == "failed"
-                        and plan[idx - 1].get("agent") == "rag_agent"
+                        next_idx > 0
+                        and next_task["agent"] == "web_search_agent"
+                        and plan[next_idx - 1].get("status") == "failed"
+                        and plan[next_idx - 1].get("agent") == "rag_agent"
                     )
                     if prev_failed_rag:
                         yield f"{STATUS_PREFIX}🌐 로컬 문서에 관련 정보가 없어 웹에서 검색합니다..."
                     else:
-                        yield f"{STATUS_PREFIX}▶ [{idx}/{len(plan)}] {label}: {desc}..."
+                        yield f"{STATUS_PREFIX}▶ [{next_idx}/{len(plan)}] {label}: {desc}..."
 
-                # orchestrator가 결정론적으로 도출한 후속 작업 제안
-                # _followup_emitted: 동일 세션에서 다중 방출 방지
+                pf = e_delta.get("pending_followup")
+                if pf and not _followup_emitted:
+                    yield f"{FOLLOWUP_PREFIX}{pf}"
+                    _followup_emitted = True
+
+            # 하위 호환: 구버전 orchestrator_agent 노드 이름이 남아있는 경우
+            elif node_name == "orchestrator_agent":
+                o_delta = event_data.get("orchestrator_agent") or {}
+                plan = o_delta.get("orchestrator_plan") or []
+                idx  = o_delta.get("orchestrator_task_idx") or 0
+                if plan and idx == 0:
+                    lines = [f"{t['id']}|{t['agent']}|{t['description']}" for t in plan]
+                    yield f"{PLAN_PREFIX}" + "\n".join(lines)
+                elif plan and idx < len(plan):
+                    task  = plan[idx]
+                    label = _AGENT_DISPLAY.get(task["agent"], "💡 작업")
+                    desc  = task.get("description", "")[:40]
+                    yield f"{STATUS_PREFIX}▶ [{idx}/{len(plan)}] {label}: {desc}..."
                 pf = o_delta.get("pending_followup")
                 if pf and not _followup_emitted:
                     yield f"{FOLLOWUP_PREFIX}{pf}"
@@ -320,13 +353,13 @@ def stream_chat(
                     pass
             continue
 
-        # worker 에이전트의 최종 텍스트 응답만 스트리밍 (supervisor는 라우팅만 하므로 제외)
+        # worker 에이전트의 최종 텍스트 응답만 스트리밍
         if node_name not in _WORKER_NODES:
             continue
 
         tool_calls = getattr(chunk, "tool_calls", None)
         if tool_calls:
-            # 도구 호출 시 진행 상황 메시지를 스트리밍해 사용자에게 피드백 제공
+            # 도구 호출 시 STATUS 토큰으로 통지 (응답 컨텐츠에 일일 쿨지 않음)
             for tc in tool_calls:
                 if not isinstance(tc, dict):
                     continue
@@ -334,9 +367,16 @@ def stream_chat(
                 args = tc.get("args") or {}
                 if tool_name == "search_documents":
                     query = args.get("query", "")
-                    status = f"\n> 🔍 **검색 중:** `{query}`\n\n" if query else "\n> 🔍 **문서 검색 중...**\n\n"
-                    full_response.append(status)
-                    yield status
+                    msg = f"🔎 문서 검색 중: {query[:50]}" if query else "🔎 문서 검색 중..."
+                    yield f"{STATUS_PREFIX}{msg}"
+                elif tool_name == "web_search":
+                    query = args.get("query", "")
+                    msg = f"🌐 웹 검색 중: {query[:50]}" if query else "🌐 웹 검색 중..."
+                    yield f"{STATUS_PREFIX}{msg}"
+                elif tool_name == "get_weather":
+                    location = args.get("location", "")
+                    msg = f"🌤️ 날씨 조회 중: {location}" if location else "🌤️ 날씨 조회 중..."
+                    yield f"{STATUS_PREFIX}{msg}"
             continue
 
         content = chunk.content

@@ -37,7 +37,7 @@ def _get_model() -> ChatOllama:
         base_url=settings.ollama_base_url,
         temperature=settings.temperature,
         num_ctx=settings.num_ctx,
-        num_predict=settings.num_predict,
+        num_predict=2048,   # 종합 시 답변이 길어지림 — settings.num_predict(1024)보다 충분하게
     )
     return base.bind_tools(_TOOLS)
 
@@ -49,10 +49,14 @@ _FOLLOWUP_RE = _re.compile(
     _re.DOTALL,
 )
 
-# LLM이 웹 검색 결과 번호를 "(출처 N)" 형식으로 인용하는 패턴 제거
-# 실제 출처 링크가 UI에 표시되지 않으므로 가짜 인용 번호는 제거한다
+# LLM이 웹 검색 결과 번호를 인용하는 패턴 제거
+# (출처 N) / (출처 N, M) — 한국어 형식
+# ([N]) / ([N], [M]) — 대괄호 번호 형식
 _FAKE_CITE_RE = _re.compile(
-    r"\s*\(출처\s*[\d,\s]+\)",
+    r"\s*(?:"
+    r"\(출처\s*[\d,\s]+\)"    # (출처 1, 5)
+    r"|\(\[\d+\](?:,\s*\[\d+\])*\)"  # ([1], [3])
+    r")",
     _re.IGNORECASE,
 )
 
