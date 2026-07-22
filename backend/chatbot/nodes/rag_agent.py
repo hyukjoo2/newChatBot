@@ -135,6 +135,11 @@ def rag_agent_node(state: ChatState) -> dict:
     response = model.invoke(full_messages)
 
     if response.content and not response.tool_calls:
+        import re as _re2
+        # <think>...</think> 블록 전체 제거 — qwen3:8b가 답변을 두 번 출력하는 문제 방지
+        cleaned = _re2.sub(r"<think>.*?</think>", "", response.content, flags=_re2.DOTALL).strip()
+        if cleaned:
+            response.content = cleaned
         response.content = _strip_intro(strip_leaked_prompt(response.content))
 
     return {"messages": [response]}
