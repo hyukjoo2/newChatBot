@@ -9,12 +9,13 @@ RAG 에이전트 노드: 로컬 지식베이스에서 문서를 검색해 답변
 """
 from __future__ import annotations
 
+import logging
 import re
 
 # ── 라우팅 지시어 정제 패턴 ──────────────────────────────────────────────────
 # "rag에서 autonomous testing 찾아줘" → "autonomous testing"
 _ROUTING_PREFIX_RE = re.compile(
-    r"^(rag에서|문서에서|로컬에서|자료에서|지식베이스에서|db에서)\s*",
+    r"^(rag에서?|문서에서|로컬(\s*디비)?에서?|자료에서|지식베이스에서?|디비에서|db에서)\s*",
     re.IGNORECASE,
 )
 _ROUTING_SUFFIX_RE = re.compile(
@@ -23,7 +24,7 @@ _ROUTING_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
 from backend.chatbot.prompts import RAG_AGENT_SYSTEM_PROMPT
@@ -33,6 +34,8 @@ from backend.chatbot.language_utils import strip_leaked_prompt
 from backend.config import settings
 
 _TOOLS = [search_documents]
+
+_log = logging.getLogger(__name__)
 
 # 한 번의 rag_agent 실행에서 허용하는 최대 tool call 횟수
 # 초과 시 도구 없는 모델로 강제 답변 생성 → 무한루프 방지
@@ -49,7 +52,7 @@ def _strip_intro(text: str) -> str:
     return _INTRO_RE.sub("", text).strip()
 
 
-def _get_model_with_tools() -> ChatOllama:
+def _get_model_with_tools(force_call: bool = False) -> ChatOllama:
     """도구 바인딩 모델 — tool call 허용."""
     base = ChatOllama(
         model=settings.ollama_model,
@@ -62,11 +65,11 @@ def _get_model_with_tools() -> ChatOllama:
 
 
 def _get_model_no_tools() -> ChatOllama:
-    """도구 없는 모델 — 강제 최종 답변 생성용."""
+    """도구 없는 모델 — 강제 최종 답변 생성용. temperature=0 으로 결과 일관성 보장."""
     return ChatOllama(
         model=settings.ollama_model,
         base_url=settings.ollama_base_url,
-        temperature=settings.temperature,
+        temperature=0.0,
         num_ctx=settings.num_ctx,
         num_predict=settings.num_predict,
     )
@@ -75,36 +78,59 @@ def _get_model_no_tools() -> ChatOllama:
 def rag_agent_node(state: ChatState) -> dict:
     """
     RAG 에이전트: 검색 → 답변 생성.
-    tool call이 _MAX_TOOL_CALLS 회를 넘으면 강제로 최종 답변을 생성해 무한루프를 막는다.
+
+    구조:
+      1. search_documents.func() 로 직접 검색 (LLM 도구 호출 결정 불필요)
+      2. 검색 결과를 시스템 프롬프트에 주입 (ToolMessage 없음 — Ollama 호환성)
+      3. LLM은 검색 결과를 읽고 최종 답변만 생성
     """
-    messages = state["messages"]
+    messages = list(state["messages"])
     retry_count: int = state.get("rag_retry_count") or 0
 
-    # 현재까지 tool call을 몇 번 했는지 카운트
-    tool_call_count = sum(
-        1 for msg in messages
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None)
-    )
+    # ── 1. 검색 실행 ────────────────────────────────────────────────────────
+    # 마지막 HumanMessage에서 쿼리 추출
+    user_query = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            c = msg.content
+            user_query = c if isinstance(c, str) else str(c)
+            break
+    clean_query = _ROUTING_PREFIX_RE.sub("", user_query).strip()
+    # 접미사 제거: "검색해줘", "알려줘" → 제거
+    clean_query = _ROUTING_SUFFIX_RE.sub("", clean_query).strip()
+    # "에 대해", "에 대한" 제거: "암호기술의 분류에 대해" → "암호기술의 분류"
+    # 제거하지 않으면 임베딩이 기술 문서에서 멀어져 관련 없는 문서가 상위에 올 수 있음
+    import re as _re
+    clean_query = _re.sub(r"\s*에\s*대해?한?\s*$", "", clean_query).strip()
+    if not clean_query:
+        clean_query = user_query
 
-    system_prompt = RAG_AGENT_SYSTEM_PROMPT
     if retry_count > 0:
-        system_prompt += (
-            "\n\n⚠️ 이전 검색 결과가 충분하지 않았습니다. "
-            "다른 키워드 조합으로 search_documents를 호출하세요. "
-            "동일한 쿼리 반복 금지."
-        )
+        # 재시도: 이전과 다른 키워드 사용 (영어 변환 시도)
+        _log.info("rag_agent retry=%d query=%r", retry_count, clean_query[:60])
+    else:
+        _log.info("rag_agent: 직접 검색 query=%r", clean_query[:60])
 
-    if tool_call_count >= _MAX_TOOL_CALLS:
-        # 최대 횟수 초과 → 도구 없는 모델로 현재까지 검색 결과를 바탕으로 답변 강제 생성
-        model = _get_model_no_tools()
-        system_prompt += (
-            "\n\n검색이 완료됐습니다. "
-            "지금까지의 검색 결과를 바탕으로 최종 답변을 작성하세요. "
-            "더 이상 도구를 호출하지 마세요."
+    search_result = search_documents.func(query=clean_query, state=state)
+    _log.debug("rag_agent: 검색 결과 %d자", len(search_result))
+
+    # ── 2. 시스템 프롬프트에 결과 주입 ─────────────────────────────────────
+    found = "찾을 수 없습니다" not in search_result and len(search_result) > 50
+
+    if found:
+        # 검색 결과가 있을 때: 단순 명확한 지시 — 복잡한 규칙 없음
+        # (복잡한 RAG_AGENT_SYSTEM_PROMPT는 LLM을 혼란시킴)
+        body = search_result.split("[document_refs:")[0]
+        system_prompt = (
+            "아래 문서 내용을 참고해서 사용자 질문에 한국어로 답하세요.\n"
+            "문서 내용 외의 정보를 지어내지 마세요.\n\n"
+            f"{body}"
         )
     else:
-        model = _get_model_with_tools()
+        system_prompt = RAG_AGENT_SYSTEM_PROMPT + "\n\n로컬 문서에서 관련 내용을 찾지 못했습니다. '관련 문서를 찾지 못했습니다'라고 답하세요."
 
+    # ── 3. LLM 답변 생성 ────────────────────────────────────────────────────
+    model = _get_model_no_tools()
     full_messages = [SystemMessage(content=system_prompt), *messages]
     response = model.invoke(full_messages)
 

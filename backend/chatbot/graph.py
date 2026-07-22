@@ -32,8 +32,8 @@ def build_graph(checkpointer=None) -> any:
     흐름:
         START → orchestrator_planner (질문 분해 + 계획 수립, 1회)
                  ↓ [첫 작업 에이전트로 라우팅]
-                 ├─ rag_agent     → rag_tools (ReAct) → rag_agent
-                 │                → grade_answer → orchestrator_evaluator
+                 ├─ rag_agent        → rag_tools (ReAct) → rag_agent
+                 │                   → grade_answer → orchestrator_evaluator
                  ├─ web_search_agent → orchestrator_evaluator
                  ├─ reasoning_agent  → direct_tools ↺ → orchestrator_evaluator
                  ├─ summary_agent    → summary_tools ↺ → orchestrator_evaluator
@@ -101,13 +101,12 @@ def build_graph(checkpointer=None) -> any:
             retry = state.get("rag_retry_count", 0)
             if retry < MAX_RETRIES:
                 return "rag_agent"
-            else:
-                return "web_search_agent"
+            # 재시도 소진 → 평가자가 Yes/No 버튼 제안 (웹 직접 실행 안 함)
+            return "orchestrator_evaluator"
         return "orchestrator_evaluator"
 
     builder.add_conditional_edges("grade_answer", _route_after_grade, {
         "rag_agent":               "rag_agent",
-        "web_search_agent":        "web_search_agent",
         "orchestrator_evaluator":  "orchestrator_evaluator",
     })
 

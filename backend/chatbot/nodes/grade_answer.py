@@ -84,10 +84,3 @@ def grade_answer_node(state: ChatState) -> dict:
         "answer_grade": grade,
         "rag_retry_count": new_retry,
     }
-
-
-    new_retry = retry_count + 1 if grade == "not_relevant" else retry_count
-    return {
-        "answer_grade": grade,
-        "rag_retry_count": new_retry,
-    }

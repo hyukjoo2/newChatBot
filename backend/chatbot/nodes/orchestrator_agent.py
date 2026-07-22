@@ -196,7 +196,15 @@ def _llm_derive_followup(agent: str, user_query: str, result: str) -> str | None
 _META_SEQ_RE    = re.compile(r"(\s|,)*(하고|해서|한\s*다음|그\s*다음|다음으로|이어서|그리고)", re.IGNORECASE)
 _META_ACTION_RE = re.compile(r"(검색|찾아|요약|정리|비교|분석|작성|써줘|만들어|설명|조사|해줘|해주세요)")
 
-_DOC_KEYWORDS = {"문서에서", "파일에서", "업로드한", "첨부한", ".pdf", ".docx", ".txt", "특허"}
+_DOC_KEYWORDS = {
+    "문서에서", "파일에서", "업로드한", "첨부한", ".pdf", ".docx", ".txt", "특허",
+    # "rag에", "로컬에" 등 사용자가 명시적으로 로컬 검색을 지시하는 패턴
+    "rag에", "rag에서", "로컬에", "로컬 문서", "지식베이스에", "지식베이스에서",
+    # DB/디비 관련 표현
+    "로컬 디비", "디비에서", "디비에", "db에서", "db에",
+    # 파일 존재 여부를 묻는 메타 쿼리 패턴
+    "파일이 있", "문서가 있", "자료가 있", "관련 파일", "관련 문서",
+}
 _WEB_KEYWORDS = {
     "어디", "위치", "주소", "영업", "운영", "입장료", "가격", "전화번호",
     "최신", "최근", "요즘", "현재", "오늘", "지금", "올해", "이번",
@@ -215,14 +223,64 @@ _IMAGE_KEYWORDS   = {"이미지", "사진", "그림", "photo", "image", "picture
 def _fallback_agent(query: str) -> str:
     """LLM 계획 수립 실패 시 키워드 기반 결정론적 에이전트 선택."""
     t = query.lower()
+    # Yes 버튼 클릭 후 웹 추가 검색 요청 — 무조건 web_search_agent
+    if t.startswith("웹에서 추가:"):
+        return "web_search_agent"
     if any(k in t for k in _IMAGE_KEYWORDS):   return "image_agent"
     if any(k in t for k in _EMAIL_KEYWORDS):   return "email_agent"
     if any(k in t for k in _SUMMARY_KEYWORDS): return "summary_agent"
     if any(k in t for k in _WEATHER_KEYWORDS): return "weather_agent"
+    # DOC 키워드를 ENTITY/WEB 보다 먼저 체크.
+    # "rag에서 검색해줘"처럼 rag 지시어 + 검색 동사가 함께 오면 rag_agent 우선.
+    if any(k in t for k in _DOC_KEYWORDS):     return "rag_agent"
     if any(pat in t for pat in _ENTITY_PATTERNS): return "web_search_agent"
     if any(k in t for k in _WEB_KEYWORDS):     return "web_search_agent"
-    if any(k in t for k in _DOC_KEYWORDS):     return "rag_agent"
     return "reasoning_agent"
+
+
+# ── RAG 우선 강제 (워크플로우 레벨) ────────────────────────────────────────
+# 프롬프트 지시가 아닌 코드로 보장 — LLM이 무시해도 동작함.
+
+# RAG가 의미 없는 에이전트 집합 (이것들만으로 구성된 플랜은 RAG 건너뜀)
+_RAG_SKIP_AGENTS = {"weather_agent", "email_agent", "image_agent"}
+
+
+def _should_skip_rag(user_query: str, plan: list[OrchestratorTask]) -> bool:
+    """RAG를 건너뛰어야 하는 경우를 결정한다 (결정론적)."""
+    # Yes 버튼 → 웹 추가 검색 액션
+    if user_query.lower().startswith("웹에서 추가:"):
+        return True
+    # 플랜 전체가 날씨·이메일·이미지로만 구성된 경우
+    if plan and all(t["agent"] in _RAG_SKIP_AGENTS for t in plan):
+        return True
+    return False
+
+
+def _ensure_rag_first(
+    plan: list[OrchestratorTask], user_query: str
+) -> list[OrchestratorTask]:
+    """
+    LLM 플랜의 첫 작업이 rag_agent가 아니면 코드 레벨에서 강제 삽입한다.
+    플랜이 이미 rag_agent로 시작하거나 skip 조건이면 그대로 반환.
+    """
+    if not plan or _should_skip_rag(user_query, plan):
+        return plan
+    if plan[0]["agent"] == "rag_agent":
+        return plan
+
+    # 플랜 어딘가에 rag_agent가 있으면 맨 앞으로 이동
+    rag_tasks   = [t for t in plan if t["agent"] == "rag_agent"]
+    other_tasks = [t for t in plan if t["agent"] != "rag_agent"]
+    combined = (rag_tasks + other_tasks) if rag_tasks else (
+        [{"id": 0, "agent": "rag_agent", "description": user_query,
+          "status": "pending", "result": None}] + plan
+    )
+    # id 재정렬 (1부터)
+    for i, t in enumerate(combined, 1):
+        t["id"] = i
+    _log.info("_ensure_rag_first: rag_agent 강제 삽입 → %s",
+              [(t["id"], t["agent"]) for t in combined])
+    return combined
 
 
 # ── LLM 모델 ────────────────────────────────────────────────────────────────
@@ -300,6 +358,10 @@ def orchestrator_planner_node(state: ChatState) -> dict:
             "result": None,
         }]
 
+    # ── 워크플로우 레벨 RAG 우선 강제 ──────────────────────────────────────
+    # LLM 플랜·폴백 결과에 관계없이 코드로 보장
+    plan = _ensure_rag_first(plan, user_query)
+
     _log.info("Planner plan: %s", [(t["id"], t["agent"]) for t in plan])
     return {"orchestrator_plan": plan, "orchestrator_task_idx": 0}
 
@@ -335,25 +397,25 @@ def orchestrator_evaluator_node(state: ChatState) -> dict:
         if task_status == "done":
             remaining_pending = [t for t in plan[idx + 1:] if t.get("status") == "pending"]
             if not remaining_pending:
-                user_q   = _last_user_message(state)
-                followup = _llm_derive_followup(plan[idx]["agent"], user_q, result or "")
-                if followup:
-                    extra_state["pending_followup"] = followup
-                    _log.info("Evaluator: LLM follow-up → %r", followup[:60])
+                user_q = _last_user_message(state)
+                if plan[idx]["agent"] == "rag_agent":
+                    # RAG 성공 후 → 결정론적으로 웹 추가 검색 제안 (LLM 호출 불필요)
+                    extra_state["pending_followup"] = f"웹에서 추가로 검색할까요?:::웹에서 추가: {user_q}"
+                    _log.info("Evaluator: RAG done → web follow-up 제안")
+                else:
+                    followup = _llm_derive_followup(plan[idx]["agent"], user_q, result or "")
+                    if followup:
+                        extra_state["pending_followup"] = followup
+                        _log.info("Evaluator: LLM follow-up → %r", followup[:60])
         else:
             if (
                 plan[idx]["agent"] == "rag_agent"
                 and not any(t["agent"] == "web_search_agent" and t["status"] == "pending" for t in plan)
             ):
-                fallback_task: OrchestratorTask = {
-                    "id": max(t["id"] for t in plan) + 1,
-                    "agent": "web_search_agent",
-                    "description": plan[idx]["description"],
-                    "status": "pending",
-                    "result": None,
-                }
-                plan.insert(idx + 1, fallback_task)
-                _log.info("Evaluator: RAG 실패 → web_search_agent 자동 폴백 삽입")
+                # RAG 실패 → 자동 폴백 대신 사용자에게 Yes/No 선택권 제공
+                user_q = _last_user_message(state)
+                extra_state["pending_followup"] = f"웹에서 검색해볼까요?:::웹에서 추가: {user_q}"
+                _log.info("Evaluator: RAG 실패 → web 검색 Yes/No 제안")
 
     next_idx = idx + 1
     _log.info("Evaluator: task %d done → advancing to %d/%d", idx, next_idx, len(plan))

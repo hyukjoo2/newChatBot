@@ -21,7 +21,7 @@ _chunk_repo = ChunkRepository()
 _MIN_SCORE = 0.013        # RRF 최소 점수 (rank ~8위 이내)
 _MAX_VECTOR_DISTANCE = 0.50  # 절대 상한 (코사인 거리) — 0.50 = 유사도 50% 이상만 허용
 _LOW_RELEVANCE_THRESHOLD = 0.38  # 이 이상이면 ⚠️ 저관련성 경고 첨부
-_ADAPTIVE_WINDOW = 0.12   # 베스트 매치 기준 상대 거리 폭
+_ADAPTIVE_WINDOW = 0.30   # 베스트 매치 기준 상대 거리 폭 (0.12→0.30: top 결과가 false positive일 때 실제 관련 문서가 잘리는 문제 방지)
 
 _log = logging.getLogger(__name__)
 _HAS_KOREAN = re.compile(r"[\uac00-\ud7a3]")
@@ -89,10 +89,10 @@ def search_documents(
                           [r.vector_distance for r in extra if r.vector_distance is not None]
                 min_vd = min(all_vds) if all_vds else 1.0
                 extra = [x for x in extra if x.vector_distance <= min_vd + _ADAPTIVE_WINDOW]
-                results = results + extra
-                # 최종 vd 정렬
-                results.sort(key=lambda x: x.vector_distance if x.vector_distance is not None else 1.0)
-                results = results[:top_k]
+                # 1차 결과(RRF 순서)를 앞에 유지하고, 2차 결과(순수 벡터)를 뒤에 추가.
+                # vd 재정렬 금지 — keyword 매치 결과가 낮은 vd의 무관한 결과에 밀리는 것을 방지.
+                extra.sort(key=lambda x: x.vector_distance if x.vector_distance is not None else 1.0)
+                results = (results + extra)[:top_k]
 
         _log.debug("search_documents final: %d results", len(results))
 
