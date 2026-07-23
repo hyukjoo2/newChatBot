@@ -30,6 +30,14 @@ import re as _re
 import logging as _logging
 _log = _logging.getLogger(__name__)
 
+
+def _rerun_fragment_or_app() -> None:
+    try:
+        st.rerun(scope="fragment")
+    except st.errors.StreamlitAPIException:
+        st.rerun()
+
+
 # ── 상태 메시지 shimmer 렌더러 ───────────────────────────────────────────────
 
 _SHIMMER_CSS_INJECTED = False  # 미사용 — _shimmer_html은 매번 style 포함
@@ -218,6 +226,7 @@ def _format_time(dt) -> str:
 
 with st.sidebar:
     # ── 태스크 진행 패널 (task_agent 실행 시에만 표시) ───────────────────────
+    # fragment 밖에 유지 — 채팅 스트리밍 중 업데이트되어야 함
     sidebar_task_panel = st.empty()
     _saved_md = st.session_state.get("_task_panel_md", "")
     if _saved_md:
@@ -246,61 +255,72 @@ with st.sidebar:
         st.error("DB 연결 실패. docker-compose를 확인하세요.")
         st.stop()
 
-    # 새 대화 버튼
-    if st.button("+ 새 대화", use_container_width=True):
-        _new_session()
-        st.rerun()
+    # ── 세션 관리 — @st.fragment 분리 ──────────────────────────────────────
+    # 삭제/이름변경/새 대화 등 사이드바 조작이 진행 중인 LLM 추론을 중단하지 않도록
+    # fragment로 격리. 비활성 세션 조작은 scope="fragment" 로 사이드바만 갱신.
 
-    st.divider()
-    st.subheader("대화 목록")
+    @st.fragment
+    def _sidebar_session_panel():
+        if st.button("+ 새 대화", use_container_width=True):
+            _new_session()
+            st.rerun()  # 새 세션 → 메인 화면 전환 필요 (full rerun)
 
-    sessions = _load_sessions()
+        st.divider()
+        st.subheader("대화 목록")
 
-    if not sessions:
-        st.caption("대화가 없습니다.")
-    else:
-        for session in sessions:
-            col_btn, col_menu = st.columns([5, 1])
-            with col_btn:
-                label = session.title
-                time_tag = _format_time(session.last_message_at or session.created_at)
-                if st.button(
-                    f"💬 {label}\n{time_tag}",
-                    key=f"sess_{session.id}",
-                    use_container_width=True,
-                ):
-                    st.session_state.current_session_id = session.id
-                    st.rerun()
-            with col_menu:
-                with st.popover("⋯", use_container_width=True):
-                    st.caption(f"**{session.title}**")
-                    new_name = st.text_input(
-                        "이름",
-                        value=session.title,
-                        key=f"rename_input_{session.id}",
-                        label_visibility="collapsed",
-                        placeholder="새 이름 입력",
-                    )
-                    if st.button("✏️ 이름 변경", key=f"rename_btn_{session.id}", use_container_width=True):
-                        if new_name.strip():
-                            session_service.rename_session(session.id, new_name.strip())
-                            st.rerun()
-                    st.divider()
-                    if st.button("🗑 삭제", key=f"del_{session.id}", use_container_width=True, type="primary"):
-                        session_service.delete_session(session.id)
-                        if st.session_state.get("current_session_id") == session.id:
-                            st.session_state.pop("current_session_id", None)
-                        st.rerun()
+        sessions = _load_sessions()
 
-    st.divider()
-    with st.expander("🔧 시스템 진단"):
-        if st.button("헬스체크 실행", use_container_width=True):
-            from backend.services.health_service import run_health_check
-            with st.spinner("점검 중..."):
-                report = run_health_check()
-            st.text(report.summary())
-            if not report.healthy:
-                st.error("일부 구성 요소에 문제가 있습니다.")
+        if not sessions:
+            st.caption("대화가 없습니다.")
+        else:
+            for session in sessions:
+                col_btn, col_menu = st.columns([5, 1])
+                with col_btn:
+                    label = session.title
+                    time_tag = _format_time(session.last_message_at or session.created_at)
+                    if st.button(
+                        f"💬 {label}\n{time_tag}",
+                        key=f"sess_{session.id}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.current_session_id = session.id
+                        st.rerun()  # 세션 전환 → 메인 화면 갱신 필요 (full rerun)
+                with col_menu:
+                    with st.popover("⋯", use_container_width=True):
+                        st.caption(f"**{session.title}**")
+                        new_name = st.text_input(
+                            "이름",
+                            value=session.title,
+                            key=f"rename_input_{session.id}",
+                            label_visibility="collapsed",
+                            placeholder="새 이름 입력",
+                        )
+                        if st.button("✏️ 이름 변경", key=f"rename_btn_{session.id}", use_container_width=True):
+                            if new_name.strip():
+                                session_service.rename_session(session.id, new_name.strip())
+                                _rerun_fragment_or_app()  # 가능하면 사이드바만 갱신
+                        st.divider()
+                        if st.button("🗑 삭제", key=f"del_{session.id}", use_container_width=True, type="primary"):
+                            session_service.delete_session(session.id)
+                            if st.session_state.get("current_session_id") == session.id:
+                                # 현재 활성 세션 삭제 → 메인 화면도 갱신 필요
+                                st.session_state.pop("current_session_id", None)
+                                st.rerun()  # full rerun
+                            else:
+                                # 비활성 세션 삭제 → 가능하면 사이드바만 갱신
+                                _rerun_fragment_or_app()
+
+        st.divider()
+        with st.expander("🔧 시스템 진단"):
+            if st.button("헬스체크 실행", use_container_width=True):
+                from backend.services.health_service import run_health_check
+                with st.spinner("점검 중..."):
+                    report = run_health_check()
+                st.text(report.summary())
+                if not report.healthy:
+                    st.error("일부 구성 요소에 문제가 있습니다.")
+
+    _sidebar_session_panel()
 
 # ──────────────────────────────────────────────
 # 메인 화면
@@ -674,4 +694,3 @@ if user_input:
                 placeholder.error(f"응답 생성 중 오류가 발생했습니다: {e}")
 
     st.rerun()
-
